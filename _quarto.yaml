@@ -1,0 +1,36 @@
+project:
+  type: default
+  output-dir: docs-rendered
+  render: 
+    - docs-working/index.qmd
+    - docs-working/page_1.qmd
+
+format:
+  html:
+    theme: simplex
+    css: ["docs-working/extra.css"]
+    embed-resources: true
+    code-fold: true
+    code-overflow: wrap
+    toc: true
+    toc-expand: true
+    toc-location: left
+    toc-depth: 4
+    lang: en-GB
+    grid:
+      sidebar-width: 300px
+      body-width: 1250px
+      margin-width: 200px
+      gutter-width: 2em
+        
+execute:
+  eval: true
+  cache: true # quarto render --cache-refresh
+
+bibliography: ["docs-working/refs.bib", "docs-working/manual-refs.bib"]
+
+knitr: 
+  opts_chunk:
+    fig.align: center
+    fig.height: 8.5
+    fig.width: 7.5

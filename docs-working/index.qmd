@@ -1,0 +1,7 @@
+---
+title: "Title page"
+author: Tormey Reimer
+date: last-modified
+---
+
+This page serves as an overall table of contents for everything in the `documentation` folder. You can access pages with links like [this](documentation/page_1.html).
