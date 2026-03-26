@@ -1,0 +1,25 @@
+---
+title: "Title page"
+author: Tormey Reimer
+date: last-modified
+---
+
+This page serves as an overall table of contents for all the project documentation. 
+
+# Data extraction and prep
+
+These scripts extract and tidy raw data for use further down the line. Where possible, the data is extract from its rawest possible form (i.e. downloaded straight from the source). These are only included for completeness' sake and do not need to be run again. Outputs from these scripts are saved in the `data\prepped_data` directory, which is not available on Github.
+
+| Script | Description |
+|:-------------------|:----------------------------------------------------------------|
+| [historical-sst.R](data-prep-scripts/historical-sst.R) | Description |
+
+# Analysis
+
+These scripts....
+
+| Script | Description |
+|:-------------------|:----------------------------------------------------------------|
+| [01_choosing_species.qmd](01_choosing_species.qmd) | Identifies the top 25 most-produced fed marine and brackishwater aquaculture species using FAO data from 2011 onwards, ranked by cumulative production volume. Includes production trends over time and an assessment of how much of global aquaculture production the top 25 species collectively represent. |
+
+

@@ -1,0 +1,1170 @@
+---
+title: "1: Choosing Species"
+subtitle: "FAO Climate Change Risks to Fed Mariculture"
+author:
+  - "Tormey Reimer"
+date: last-modified
+bibliography: ["resources/references.bib"]
+execute:
+  eval: true
+  cache: true
+knitr:
+  opts_chunk:
+    fig.align: center
+    fig.height: 8.5
+    fig.width: 7.5
+---
+
+::: {style="display: flex; justify-content: space-between;"}
+[← Previous: Index](index.qmd)
+
+[Next: Assigning Locations →](02_assigning_locations.qmd)
+:::
+
+```{r setup}
+#| include: false
+#| code-summary: "Load packages and set display globals"
+
+library(tidyverse)
+library(stringr)
+library(here)
+library(qs2)
+library(units)
+library(gt)
+library(cowplot)
+library(ggtext)
+
+here("src", "dirs.R") %>% source()
+here("src", "functions.R") %>% source()
+here("src", "display_globals.R") %>% source()
+```
+
+# Overview {#sec-overview}
+
+The goal of this document is to identify the most commercially important marine and brackishwater aquaculture species worldwide, based on FAO production data from 2011 to the most recent available year. We focus on post-2010 data to reflect modern production trends, and rank species by their total reported production volume (tonnes live weight) over this period.
+
+# Load aquaculture data {#sec-load-aquaculture-data}
+
+The previous data processing script () has already matched the scientific name reported to the FAO with a manually-keyed `species_name`, which is actually more akin to a common name.
+
+```{r load-data}
+#| code-summary: "Load FAO aquaculture production dataset"
+
+# here("data-prep-scripts", "aquaculture-production-data.R") %>% source()
+FAO_aqua <- file.path(prepdata_path, "FAO_aquaculture_quantity_MA_BR.qs") %>% 
+  qd_read() %>% 
+  select(-status_nm)
+
+head(FAO_aqua)
+```
+
+The dataset covers FAO-reported aquaculture production across marine and brackishwater environments. Each row represents the production (tonnes live weight) for a given species, country, and year. We restrict the analysis to years **after 2010** (i.e., 2011 onwards).
+
+This analysis focuses exclusively on **fed mariculture** — species that require external feed inputs. Seaweeds, bivalves (clams, oysters, mussels, scallops), and other filter-feeders have been excluded.
+
+```{r filter-post2010}
+#| code-summary: "Filter dataset to years after 2010 and only to fed species"
+
+FAO_modern <- FAO_aqua %>% 
+  filter(
+    period > 2010 
+    )
+
+FAO_modern_fed <- FAO_aqua %>% 
+  filter(
+    period > 2010 & 
+      !group_name == "seaweed_plants" & 
+      !species_name %in% c("clams", "oysters", "mussels", "scallops", "general_bivalves", "general_molluscs", "jellyfish")
+    )
+
+cat("Years included:", min(FAO_modern_fed$period), "–", max(FAO_modern_fed$period), "\n")
+cat("Number of unique fed species:", n_distinct(FAO_modern_fed$species_name), "\n")
+```
+
+```{r calculate-fed-fraction}
+#| code-summary: "Calculate % of total marine aquaculture production retained after filtering to fed species"
+
+total_production_all <- FAO_modern %>%
+  group_by(environment) %>% 
+  summarise(total_all = sumna(drop_units(value)))
+
+total_production_fed <- FAO_modern_fed %>%
+  group_by(environment) %>% 
+  summarise(total_fed = sumna(drop_units(value)))
+
+total_production <- left_join(total_production_all, total_production_fed, by = join_by(environment)) %>% 
+  mutate(
+    pct_fed = round(total_fed/total_all * 100, 1),
+    pct_nonfed = round(100 - pct_fed, 1)
+    )
+```
+
+Fed species account for
+**`r total_production$pct_fed[total_production$environment == "Marine"]`%** of total reported marine aquaculture production over this period, and
+**`r total_production$pct_fed[total_production$environment != "Marine"]`%** of total reported brackishwater aquaculture production.
+The remaining **`r total_production$pct_nonfed[total_production$environment == "Marine"]`%/`r total_production$pct_nonfed[total_production$environment != "Marine"]`%** of species (seaweeds, bivalves, and other non-fed groups) have been excluded from all subsequent analysis.
+
+```{r summarise-by-species}
+#| code-summary: "Aggregate total production per species and remove non-fed groups"
+
+# species_totals <- FAO_modern %>% 
+#   group_by(environment, group_name, species_name) %>%
+#   summarise(
+#     total_production_t = sumna(drop_units(value)),
+#     .groups = "drop"
+#   )
+
+species_totals_fed <- FAO_modern_fed %>%
+  group_by(environment, group_name, species_name) %>%
+  summarise(
+    total_production_t = sumna(drop_units(value)),
+    .groups = "drop"
+  )
+```
+
+# Top-produced fed species {#sec-top-produced-species}
+
+We want to cover as much aquaculture production as possible, and therefore rank the fed species from highest to lowest cumulative live-weight production (@fig-top-species). Additionally, some species have already been parameterised (but not calibrated) in a previous project, so including them will reduce the additional work that needs to be done.
+
+```{r rank-species}
+#| code-summary: "Rank species by total production in each environment"
+
+species_totals_ranked <- rbind(
+  species_totals_fed %>% 
+    filter(environment == "Marine") %>% 
+    arrange(desc(total_production_t)) %>%
+    mutate(rank = row_number()),
+  species_totals_fed %>% 
+    filter(environment != "Marine") %>% 
+    arrange(desc(total_production_t)) %>%
+    mutate(rank = row_number())
+)
+```
+
+```{r define-ready-models}
+#| code-summary: "Define vector of species names that already have a parameterised model"
+
+all_ready <- c(
+  "atlantic_salmon",
+  "general_salmonid", 
+  "rainbow_trout", # Duplicate of "general_salmonid"
+  "bass", # European Seabass & Japanese Seabass
+  "european_seabass", # Duplicate of "bass"
+  "japanese_seabass", # Duplicate of "bass"
+  "croaker", # Large Yellow Croaker
+  "grouper",
+  "jack_pompano",
+  "golden_pompano", # Duplicate of "jack_pompano"
+  "milkfish",
+  "yellowtails", 
+  "japanese_amberjack" # Duplicate of "yellowtails"
+)
+```
+
+```{r fig-top-species}
+#| fig-height: 6.5
+#| fig-width: 12
+#| fig-cap: "Cumulative production (megatonnes live weight) for the top 20 fed marine and brackishwater aquaculture species from 2011 to 2023 (the most recent available year). Species are ordered by total production; colour indicates a broad taxonomic group. Species with **bold** names already have a parameterised (but not calibrated) model."
+#| code-summary: "Plot bar chart of top 20 species by cumulative production"
+
+max_rank <- 20
+
+plot_data_Marine <- species_totals_ranked %>% 
+  filter(rank <= max_rank) %>%
+  filter(environment == "Marine") %>% 
+  mutate(
+    species_name = fct_reorder(species_name, total_production_t),
+    total_production_Mt = total_production_t / 1e6
+  )
+
+bold_labels_Marine <- ifelse(
+  levels(factor(plot_data_Marine$species_name)) %in% all_ready,
+  paste0("**", levels(factor(plot_data_Marine$species_name)), "**"),
+  levels(factor(plot_data_Marine$species_name))
+)
+
+p1 <- plot_data_Marine %>%
+  ggplot(aes(x = species_name, y = total_production_Mt, fill = group_name)) +
+  geom_col(colour = "grey30", linewidth = 0.25) +
+  coord_flip() +
+  scale_x_discrete(labels = bold_labels_Marine) +
+  scale_y_continuous(
+    labels = scales::label_number(suffix = " Mt"),
+    limits = c(0.0065, 33.6),
+    transform = "log"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Top 15 most-produced marine species",
+    subtitle = paste0("FAO data, 2011–", max(FAO_modern_fed$period), " (cumulative live weight)"),
+    y = "Total production (megatonnes live weight)",
+    x = NULL,
+    fill = "Species group"
+  ) +
+  prettyplot() + 
+  theme(legend.position = "bottom", axis.text.y = element_markdown())
+
+plot_data_Brackish <- species_totals_ranked %>% 
+  filter(rank <= max_rank) %>%
+  filter(environment != "Marine") %>% 
+  mutate(
+    species_name = fct_reorder(species_name, total_production_t),
+    total_production_Mt = total_production_t / 1e6
+  )
+
+bold_labels_Brackish <- ifelse(
+  levels(factor(plot_data_Brackish$species_name)) %in% all_ready,
+  paste0("**", levels(factor(plot_data_Brackish$species_name)), "**"),
+  levels(factor(plot_data_Brackish$species_name))
+)
+
+p2 <- plot_data_Brackish %>%
+  ggplot(aes(x = species_name, y = total_production_Mt, fill = group_name)) +
+  geom_col(colour = "grey30", linewidth = 0.25) +
+  coord_flip() +
+  scale_x_discrete(labels = bold_labels_Brackish) +
+  scale_y_continuous(
+    labels = scales::label_number(suffix = " Mt"),
+    limits = c(0.0065, 33.6),
+    transform = "log"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Top 15 most-produced brackishwater species",
+    subtitle = paste0("FAO data, 2011–", max(FAO_modern_fed$period), " (cumulative live weight)"),
+    y = "Total production (megatonnes live weight)",
+    x = NULL,
+    fill = "Species group"
+  ) +
+  prettyplot() + 
+  theme(legend.position = "bottom", axis.text.y = element_markdown())
+
+plot_grid(p1, p2, ncol = 2)
+```
+
+# Choosing models {#sec-choosing-models}
+
+Of the groups above, some are obviously going to be picked. However, there are a few that appear in both the marine and brackishwater classificiations - namely general_fish, breams_porgies, and bass. What exactly are the differences between these species in the FAO data?
+
+```{r species-detail}
+#| code-summary: "Get the major species in either category"
+
+top_species <- species_totals_ranked %>% 
+  filter(rank <= max_rank)
+
+investigating <- FAO_aqua %>% 
+  filter(species_name %in% top_species$species_name) %>% 
+  group_by(environment, country, species_name, Scientific_Name) %>% 
+  reframe(value = sum(value)) %>% 
+  group_by(environment, species_name, Scientific_Name) %>% 
+  reframe(countries = n(), value = sum(value))  %>% 
+  group_by(environment, species_name) %>% 
+  mutate(total_value = sum(value)) %>% 
+  ungroup() %>% 
+  mutate(perc_value = drop_units(100*value/total_value)) %>% 
+  arrange(species_name, -perc_value) %>% 
+  group_by(environment, species_name) %>% 
+  slice_head(n = 3) %>% 
+  ungroup() %>% 
+  filter(perc_value > 5 & drop_units(total_value) > 10) %>% 
+  select(-value)
+```
+
+```{r marine-species-detail}
+#| code-summary: "Show major species in 'marine' categories"
+
+# investigating %>% 
+#   filter(environment == "Marine") %>% 
+#   select(-environment) %>% 
+#   print(n = 75)
+
+# write.csv(investigating, "investigating.csv")
+```
+
+```{r brackish-species-detail}
+#| code-summary: "Show major species in 'brackishwater' categories"
+
+# investigating %>% 
+#   filter(environment != "Marine") %>% 
+#   select(-environment) %>% 
+#   print(n = 75)
+```
+
+Most FAO species records do not map one-to-one onto a single species for easy model parameterisation: many FAO entries report genus only (e.g. "*Pennaeus* spp") or broadly-defined groups (e.g. "Actinopterygii"). To handle this, we load a manually curated lookup table (`top_species_model_keys.csv`) that assigns each FAO record a **model name** — the name of the bioenergetic model that will represent it in subsequent analyses.
+
+```{r load-model-keys}
+#| code-summary: "Load the species-to-model-name lookup table and join to FAO production data"
+
+model_keys <- file.path(rawdata_path, "top_species_model_keys.csv") %>%
+  read_csv(show_col_types = FALSE) %>%
+  select(-notes) %>%
+  mutate(across(where(is.character), str_trim)) %>%
+  arrange(Scientific_Name)
+
+FAO_with_models <- FAO_modern_fed %>%
+  mutate(across(where(is.character), str_trim)) %>%
+  left_join(
+    model_keys,
+    by = c("environment", "Sci_Name_Match" = "Scientific_Name"),
+    relationship = "many-to-many"
+  ) %>%
+  rename(model_name_1 = model_name) %>%
+  filter(species_name %in% top_species$species_name) %>%   # retain top species only
+  left_join(
+    model_keys,
+    by = c("environment", "Scientific_Name" = "Scientific_Name"),
+    relationship = "many-to-many"
+  ) %>%
+  rename(model_name_2 = model_name) %>%
+  mutate(model_name = case_when(
+    !is.na(model_name_2) ~ model_name_2,   # prefer full-name match
+    !is.na(model_name_1) ~ model_name_1,   # fall back to genus-level match
+    TRUE ~ NA
+  )) %>%
+  select(-model_name_1, -model_name_2) %>%
+  # The genus-only duplicates added to model_keys mean a single FAO row can match
+  # multiple model_keys rows (e.g. "Salmo salar" matches both the full-name and the
+  # "Salmo" genus entry). After coalescing model_name the duplicates are identical,
+  # so distinct() safely collapses them back to one row per original FAO record.
+  distinct()
+
+# Check that there are no major records missing a model_name
+FAO_with_models %>% 
+  filter(is.na(model_name)) %>% 
+  distinct(environment, Scientific_Name)
+```
+
+```{r rank-model-names}
+#| code-summary: "Rank model names by total production in each environment"
+
+# Marine environment only
+choosing_ranks_marine <- FAO_with_models %>%
+  filter(environment == "Marine") %>% 
+  group_by(model_name) %>%
+  reframe(value = sum(value)) %>%
+  arrange(-value) %>%
+  mutate(rank = row_number()) %>%
+  ungroup() %>%
+  select(-value)
+
+# Both environments
+choosing_ranks_both <- FAO_with_models %>%
+  group_by(model_name) %>%
+  reframe(value = sum(value)) %>%
+  arrange(-value) %>%
+  mutate(rank = row_number()) %>%
+  ungroup() %>%
+  select(-value)
+```
+
+## Coverage of chosen production {#sec-coverage}
+
+There are more model_names than this project can probably reasonably parameterise, so we need a priority list. `choosing_ranks_marine` gives the priority order in which bioenergetic models might be developed if only marine production is being considered, and `choosing_ranks_both` gives the priority order in which bioenergetic models might be developed if both marine and brackishwater production is being considered.
+
+We will get different model-development priorities depending on whether the goal is to cover marine production alone or the combined marine + brackishwater total, and they will lead to different outcomes for both environments.
+@fig-coverage-marine shows live-weight coverage when models are added in the order that maximises marine production coverage first, while @fig-coverage-both shows live-weight coverage when models are added in the order that maximises combined marine + brackishwater production coverage.
+
+```{r calculate-coverage-data}
+#| code-summary: "Calculate per-model production and cumulative coverage for each ranking and scope"
+
+# Grand totals for each production scope
+grand_total_marine <- FAO_modern_fed %>%
+  filter(environment == "Marine") %>%
+  summarise(t = sum(drop_units(value), na.rm = TRUE)) %>%
+  pull(t)
+
+grand_total_both <- FAO_modern_fed %>%
+  summarise(t = sum(drop_units(value), na.rm = TRUE)) %>%
+  pull(t)
+
+# Total production per model_name, split into marine-only and combined scopes
+model_production <- FAO_with_models %>%
+  group_by(model_name) %>%
+  reframe(
+    prod_marine = drop_units(sum(value[environment == "Marine"], na.rm = TRUE)),
+    prod_both   = drop_units(sum(value, na.rm = TRUE))
+  )
+
+# Helper: given a rank table, join production and calculate long-format cumulative coverage
+make_coverage <- function(ranks) {
+  ranks %>%
+    left_join(model_production, by = "model_name") %>%
+    arrange(rank) %>%
+    mutate(
+      cum_marine = 100*cumsum(prod_marine) / grand_total_marine,
+      cum_both   = 100*cumsum(prod_both)   / grand_total_both
+    ) %>%
+    slice_head(n = 20) %>% 
+    pivot_longer(
+      cols      = c(cum_marine, cum_both),
+      names_to  = "scope",
+      values_to = "cumulative_pct"
+    ) %>%
+    mutate(scope = recode(scope,
+      "cum_marine" = "Marine only",
+      "cum_both"   = "Marine + brackishwater"
+    ))
+}
+
+coverage_marine_rank <- make_coverage(choosing_ranks_marine)
+coverage_both_rank   <- make_coverage(choosing_ranks_both)
+
+# Differences between the rankings
+marine_models_unique <- setdiff(unique(coverage_marine_rank$model_name), unique(coverage_both_rank$model_name)) 
+both_models_unique <- setdiff(unique(coverage_both_rank$model_name), unique(coverage_marine_rank$model_name))
+```
+
+```{r coverage-plot-helper}
+#| include: false
+#| code-summary: "Define reusable function for the coverage plot"
+
+# Shared plot function so both figures use identical styling.
+# model_name is converted to an ordered factor so the x-axis follows the rank order.
+plot_coverage <- function(data, title_str, bold_models) {
+  model_order <- data %>% distinct(rank, model_name) %>% arrange(rank) %>% pull(model_name) %>% rev()
+  
+  bold_labels <- ifelse(
+    model_order %in% bold_models,
+    paste0("**", model_order, "**"),
+    model_order
+  )
+
+  vline_10_M <- data %>% filter(rank == 10 & scope == "Marine only") %>% pull(cumulative_pct)
+  vline_10_B <- data %>% filter(rank == 10 & scope == "Marine + brackishwater") %>% pull(cumulative_pct)
+  vline_15_M <- data %>% filter(rank == 15 & scope == "Marine only") %>% pull(cumulative_pct)
+  vline_15_B <- data %>% filter(rank == 15 & scope == "Marine + brackishwater") %>% pull(cumulative_pct)
+
+  data %>%
+    mutate(model_name = factor(model_name, levels = model_order)) %>%
+    ggplot(aes(x = model_name, y = cumulative_pct, colour = scope)) +
+    geom_hline(yintercept = vline_10_M, linetype = "dashed", colour = "#2c7bb6", alpha = 0.5) +
+    geom_hline(yintercept = vline_10_B, linetype = "dashed", colour = "#d7191c", alpha = 0.5) +
+    geom_hline(yintercept = vline_15_M, linetype = "dashed", colour = "#2c7bb6", alpha = 0.5) +
+    geom_hline(yintercept = vline_15_B, linetype = "dashed", colour = "#d7191c", alpha = 0.5) +
+    annotate(
+      "text", x = 20, y = vline_10_M, label = sprintf("%.1f%%", vline_10_M),
+      hjust = -0.1, vjust = 2.25, colour = "#2c7bb6", size = 3.5
+    ) +
+    annotate(
+      "text", x = 20, y = vline_10_B, label = sprintf("%.1f%%", vline_10_B),
+      hjust = -0.1, vjust = 1.5, colour = "#d7191c", size = 3.5
+    ) +
+    annotate(
+      "text", x = 20, y = vline_15_M, label = sprintf("%.1f%%", vline_15_M),
+      hjust = -0.1, vjust = -0, colour = "#2c7bb6", size = 3.5
+    ) +
+    annotate(
+      "text", x = 20, y = vline_15_B, label = sprintf("%.1f%%", vline_15_B),
+      hjust = -0.1, vjust = 0.75, colour = "#d7191c", size = 3.5
+    ) +
+    geom_line(aes(group = scope), linewidth = 1) +
+    geom_point(size = 2.5) +
+    scale_y_continuous(
+      labels = scales::label_percent(scale = 1),
+      limits = c(0, 100),
+      breaks = seq(0, 100, by = 10)
+    ) +
+    scale_x_discrete(labels = bold_labels) +
+    scale_colour_manual(
+      values = c("Marine only" = "#2c7bb6", "Marine + brackishwater" = "#d7191c")
+    ) +
+    labs(
+      title    = title_str,
+      subtitle = paste0("FAO data, (2011– ", max(FAO_aqua$period), " fed species only)"),
+      x        = NULL,
+      y        = "Cumulative production coverage (%)",
+      colour   = "Production scope"
+    ) +
+    prettyplot() +
+    theme(
+      legend.position = "bottom",
+      axis.text.y     = element_markdown()
+    ) +
+    coord_flip()
+}
+```
+
+```{r fig-coverage-marine}
+#| fig-height: 6.5
+#| fig-width: 8.5
+#| fig-cap: "Cumulative production coverage when models are added in the order that maximises **marine** production coverage (i.e. ranked by marine-only production). Blue line = marine coverage; red line = combined marine + brackishwater coverage. **Bold** names indicate models that are in the top 20 marine rankings but not the top 20 brackish rankings. Dotted lines show the % of global fed marine production (blue) and marine + brackishwater production (red) that is covered by the first 10 and first 15 models chosen."
+#| code-summary: "Plot cumulative coverage under the marine-first ranking"
+
+plot_coverage(
+  coverage_marine_rank,
+  "Coverage under marine-first model ranking",
+  marine_models_unique
+)
+```
+
+```{r fig-coverage-both}
+#| fig-height: 6.5
+#| fig-width: 8.5
+#| fig-cap: "Cumulative production coverage when models are added in the order that maximises **combined marine + brackishwater** production coverage (i.e. ranked by pooled production). Blue line = marine coverage; red line = combined marine + brackishwater coverage. **Bold** names indicate models that are in the top 20 marine rankings but not the top 20 brackish rankings. Dotted lines show the % of global fed marine production (blue) and marine + brackishwater production (red) that is covered by the first 10 and first 15 models chosen."
+#| code-summary: "Plot cumulative coverage under the combined-environment ranking"
+
+plot_coverage(
+  coverage_both_rank,
+  "Coverage under combined marine + brackishwater model ranking",
+  both_models_unique
+)
+```
+
+## A compromise list {#sec-compromise-list}
+
+Looking at @fig-coverage-marine and @fig-coverage-both above, it makes sense to use the marine + brackishwater as a starting point. However, we can make a few adjustments:
+
+- The "general_fish" model will be a parameterisation challenge, given it's entries are catch-alls for "bony fishes". Since we don't have more detailed data than that, it's probably safest to exclude "general_fish" altogether. Same goes for "general_invertebrate".
+- There are two species that have been parameterised but didn't make it into either list: namely "japanese_seabass" and "japanese_amberjack".
+
+@fig-coverage-compromise shows the live-weight coverage of a compromised list which excludes "general_fish" and "general_invertebrate" but includes "japanese_seabass" and "japanese_amberjack".
+
+```{r fig-coverage-compromise}
+#| fig-height: 6.5
+#| fig-width: 8.5
+#| fig-cap: "Cumulative production coverage when models are added in the 'compromise' order. Blue line = marine coverage; red line = combined marine + brackishwater coverage. **Bold** names indicate models that are already parameterised. Dotted lines show the % of global fed marine production (blue) and marine + brackishwater production (red) that is covered by the full 16 models chosen."
+#| code-summary: "Plot cumulative coverage under the compromise ranking"
+
+choosing_ranks_compromise <- choosing_ranks_both %>% 
+  filter(model_name %in% choosing_ranks_both$model_name[choosing_ranks_both$rank <=15] | model_name %in% c("japanese_seabass", "japanese_amberjack")) %>% 
+  filter(!model_name %in% c("general_fish", "general_invertebrate")) %>% 
+  arrange(rank) %>% 
+  mutate(rank = row_number())
+
+coverage_compromise_rank <- make_coverage(choosing_ranks_compromise)
+
+model_order <- coverage_compromise_rank %>% distinct(rank, model_name) %>% arrange(rank) %>% pull(model_name) %>% rev()
+
+bold_labels <- ifelse(
+    model_order %in% all_ready,
+    paste0("**", model_order, "**"),
+    model_order
+  )
+
+vline_15_M <- coverage_compromise_rank %>% filter(rank == max(rank) & scope == "Marine only") %>% pull(cumulative_pct)
+vline_15_B <- coverage_compromise_rank %>% filter(rank == max(rank) & scope == "Marine + brackishwater") %>% pull(cumulative_pct)
+
+coverage_compromise_rank %>%
+  mutate(model_name = factor(model_name, levels = model_order)) %>%
+  ggplot(aes(x = model_name, y = cumulative_pct, colour = scope)) +
+  geom_hline(yintercept = vline_15_M, linetype = "dashed", colour = "#2c7bb6", alpha = 0.5) +
+  geom_hline(yintercept = vline_15_B, linetype = "dashed", colour = "#d7191c", alpha = 0.5) +
+  annotate(
+    "text", x = 16, y = vline_15_M, label = sprintf("%.1f%%", vline_15_M),
+    hjust = -0.5, vjust = 0, colour = "#2c7bb6", size = 3.5
+  ) +
+  annotate(
+    "text", x = 16, y = vline_15_B, label = sprintf("%.1f%%", vline_15_B),
+    hjust = -0.5, vjust = 1, colour = "#d7191c", size = 3.5
+  ) +
+  geom_line(aes(group = scope), linewidth = 1) +
+  geom_point(size = 2.5) +
+  scale_x_discrete(labels = bold_labels) +
+  scale_y_continuous(
+    labels = scales::label_percent(scale = 1),
+    limits = c(0, 100),
+    breaks = seq(0, 100, by = 10)
+  ) +
+  scale_colour_manual(
+    values = c("Marine only" = "#2c7bb6", "Marine + brackishwater" = "#d7191c")
+  ) +
+  labs(
+    title    = "Coverage under compromise model ranking",
+    subtitle = paste0("FAO data, (2011– ", max(FAO_aqua$period), ", fed species only)"),
+    x        = NULL,
+    y        = "Cumulative production coverage (%)",
+    colour   = "Production scope"
+  ) +
+  prettyplot() +
+  theme(
+    legend.position = "bottom",
+    axis.text.y     = element_markdown()
+  ) +
+  coord_flip()
+```
+
+### Geographic coverage of the compromise list {#sec-geographic-coverage-compromise}
+
+The compromised list is based entirely on live-weight production, but we want to check the geographic coverage of the models as well. @fig-geo-coverage-by-model shows the proportion of each country's total fed aquaculture production that is represented by each model in the compromise model list, and @fig-geo-coverage-total shows the proportion covered by all models in that list combined.
+
+```{r geo-coverage-setup}
+#| code-summary: "Source mapping variables and calculate per-model % coverage by country"
+
+here("src", "mapping_vars.R") %>% source()
+
+# Distinct model names selected under the compromise ranking
+chosen_models <- coverage_compromise_rank %>%
+  distinct(model_name) %>%
+  pull(model_name)
+
+# Denominator: total fed aquaculture production per country (all periods, all fed species)
+total_prod_country <- FAO_modern_fed %>%
+  group_by(ISO3_Code) %>%
+  summarise(total_prod = sum(drop_units(value), na.rm = TRUE), .groups = "drop")
+
+# Numerator: production per model_name × country combination
+model_prod_country <- FAO_with_models %>%
+  filter(model_name %in% chosen_models) %>% 
+  group_by(ISO3_Code, model_name) %>%
+  summarise(model_prod = sum(drop_units(value), na.rm = TRUE), .groups = "drop") %>%
+  left_join(total_prod_country, by = "ISO3_Code") %>%
+  mutate(
+    pct_coverage = 100 * model_prod / total_prod,
+    pct_coverage = case_when(total_prod == 0 ~ NA, TRUE ~ pct_coverage)
+  )
+
+# Complete model_prod_country so every ISO3_Code × model_name combination exists
+# (countries with no production for a given model get NA pct_coverage rather than
+#  being absent from the data, which would make them appear white instead of grey)
+model_prod_country_complete <- model_prod_country %>%
+  complete(
+    ISO3_Code = unique(worldmap_robinson$iso_a3),
+    model_name
+  )
+
+# Join each model's coverage onto the Robinson world map
+map_model_coverage <- worldmap_robinson %>%
+  left_join(model_prod_country_complete, by = c("iso_a3" = "ISO3_Code")) %>%
+  select(iso_a3, model_name, model_prod, total_prod, pct_coverage, name, geometry)
+```
+
+```{r fig-geo-coverage-by-model}
+#| fig-height: 17
+#| fig-width: 14
+#| fig-cap: "Percentage of each country's total fed aquaculture production represented by each chosen model name (all years combined, 2011–2023). Countries shown in grey had no reported production for that model."
+#| code-summary: "Plot per-model % production coverage on Robinson projection, faceted by model_name"
+
+p_bigmap_robinson +
+  geom_sf(
+    data = map_model_coverage %>% filter(!is.na(model_name)),
+    aes(fill = pct_coverage),
+    colour = "dimgray",
+    linewidth = 0.15
+  ) +
+  facet_wrap(~model_name, ncol = 3) +
+  scale_fill_distiller(
+    palette  = "YlOrRd",
+    direction = 1,
+    na.value  = "grey85",
+    labels    = scales::label_percent(scale = 1),
+    limits    = c(0, 100),
+    name      = "% of national\nfed production"
+  ) +
+  labs(
+    title    = "Share of national fed aquaculture production by model",
+    subtitle = paste0("FAO data, 2011–", max(FAO_modern_fed$period), " (all periods combined)")
+  ) +
+  theme(
+    legend.position  = "bottom",
+    legend.key.width = unit(2, "cm"),
+    strip.text       = element_text(face = "bold", size = 9),
+    plot.title       = element_text(face = "bold")
+  )
+```
+
+```{r geo-total-coverage-setup}
+#| code-summary: "Calculate total % of each country's fed production covered by all chosen models combined"
+
+total_coverage_country <- FAO_with_models %>%
+  filter(model_name %in% chosen_models) %>% 
+  group_by(ISO3_Code) %>%
+  summarise(chosen_prod = sum(drop_units(value), na.rm = TRUE), .groups = "drop") %>%
+  left_join(total_prod_country, by = "ISO3_Code") %>%
+  mutate(
+    pct_total_coverage = 100 * chosen_prod / total_prod,
+    pct_total_coverage = case_when(total_prod == 0 ~ NA, TRUE ~ pct_total_coverage)
+    )
+
+map_total_coverage <- worldmap_robinson %>%
+  left_join(total_coverage_country, by = c("iso_a3" = "ISO3_Code")) %>% 
+  select(iso_a3, chosen_prod, total_prod, pct_total_coverage, name, geometry)
+```
+
+```{r fig-geo-coverage-total}
+#| fig-height: 6
+#| fig-width: 10
+#| fig-cap: "Percentage of each country's total fed aquaculture production covered by all chosen model names combined (all years combined, 2023). Countries shown in grey had no reportable fed aquaculture production in the FAO data."
+#| code-summary: "Plot total % production coverage by all chosen models on Robinson projection"
+
+p_bigmap_robinson +
+  geom_sf(
+    data = map_total_coverage,
+    aes(fill = pct_total_coverage),
+    colour = "dimgray",
+    linewidth = 0.15
+  ) +
+  scale_fill_distiller(
+    palette   = "YlOrRd",
+    direction = 1,
+    na.value  = "grey85",
+    labels    = scales::label_percent(scale = 1),
+    limits    = c(0, 100),
+    name      = "% of national\nfed production"
+  ) +
+  labs(
+    title    = "Total coverage of national fed aquaculture production by all chosen models",
+    subtitle = paste0("FAO data, 2011–", max(FAO_modern_fed$period), " (all periods combined)")
+  ) +
+  theme(
+    legend.position  = "bottom",
+    legend.key.width = unit(2, "cm"),
+    plot.title       = element_text(face = "bold")
+  )
+```
+
+### Underrepresented countries {#sec-underrepresented-countries}
+
+Looking at @fig-geo-coverage-total, it seems like there are some areas underrepresented by the compromise list. What are they growing there?
+
+```{r missed-countries}
+#| code-summary: "Identify countries where < 50% of fed aquaculture production is covered by chosen models"
+
+country_species <- FAO_modern_fed %>%
+  group_by(ISO3_Code, country, Scientific_Name, species_name) %>% 
+  reframe(species_total = drop_units(sum(value)))
+
+missed_countries <- map_total_coverage %>% 
+  st_drop_geometry() %>% 
+  filter(pct_total_coverage < 50 & !is.na(total_prod) & total_prod != 0) %>% 
+  distinct(iso_a3, pct_total_coverage, total_prod) %>% 
+  left_join(country_species, by = c("iso_a3" = "ISO3_Code")) %>% 
+  filter(species_total > 0) %>% 
+  arrange(pct_total_coverage, -species_total)
+
+list_missed <- missed_countries %>% 
+  pull(country) %>% unique()
+small_prod <- missed_countries %>% 
+  filter(total_prod <= 50) %>% 
+  distinct(country) %>% 
+  mutate(country = as.character(country))
+```
+
+Of the `r length(list_missed)` countries where < 50% of aquaculture is covered by the chosen species/models, `r nrow(small_prod)` have extremely small production values (50 t over the entire decade): `r stringr::str_flatten_comma(small_prod$country)`.
+
+Of the remaining countries, many have a single reported group that dominates their live weight production (@tbl-missed-countries-detail).
+
+```{r tbl-missed-countries-detail}
+#| tbl-cap: "Countries underrepresented by the compromised list, their top 5 produced groups by live weight (2011-2023), the percentage of their total production covered by each group, and whether or not each group is already included by the chosen models."
+#| code-summary: "Show species composition of poorly-covered countries with meaningful production"
+
+options(width = 120)
+
+missed_countries %>%
+  filter(total_prod > 50) %>% 
+  mutate(
+    species_pct = round(100*species_total/total_prod, 1),
+    species_total = round(species_total,1),
+    covered_pct = round(pct_total_coverage, 1),
+    included = case_when(
+      species_name %in% c("shrimp", "jack_pompano", "crabs", "grouper", "bass", "abalone", "breams", "porgies") ~ "Y", 
+      TRUE ~ " "
+    )
+    ) %>% 
+  select(-iso_a3, -pct_total_coverage, -covered_pct) %>% 
+  group_by(country) %>% 
+  slice_head(n = 5) %>% 
+  ungroup() %>% 
+  rename(
+    `Country prod (t)` = total_prod,
+    Country = country,
+    `Group` = Scientific_Name,
+    `Common name` = species_name,
+    `Species prod. (t)` = species_total,
+    `Species prop. (%)` = species_pct,
+    `Included?` = included
+  ) %>% 
+  gt() %>%
+  # fmt_markdown(columns = `Representative species`) %>%
+  # cols_width(`Model name` ~ px(220), `Groups represented` ~ px(550), `Representative species` ~ px(420)) %>%
+  # tab_style(
+  #   style = cell_text(font = system_fonts("monospace-code")),
+  #   locations = cells_body(columns = `Model name`)
+  # ) %>%
+  tab_options(table.font.size = px(14))
+```
+
+## Manual curation {#sec-manual-curation}
+
+A few adjustments can be made to the compromised list to account for these underrepresented countries:
+
+- South Korea has a large total production but it is very diverse and poorly represented by the compromise model choice (@tbl-missed-countries-detail). South Korea would be much better represented if flatfish were represented in the chosen models (~33% of production). Including flatfish would also improve the representation of Portugal.
+- Malta is currently poorly represented, almost entirely because `tuna` are not in the chosen models (~82% of production).
+- Mauritius is similarly poorly represented, almost entirely because `drums` are not in the chosen models (~94% of production). `drums` and `large_yellow_croaker` could have similar parameterisation in the model as the groups are closely related, although drums are larger and more specialised than croakers.
+- ~40% of live-weight production in Mozambique is tilapia, and ~33% is meagres (which is actually a kind of drum)
+- `general_fish` makes up a large portion of the live-weight production of Bangladesh and Hong Kong (@tbl-missed-countries-detail), but has already been excluded for vagueness. There's not much we can do about this.
+
+Additionally, while `rapa_whelk` covers a large amount of live weight production it is only used for a single country: China. It has therefore been excluded. The same logic could be applied to `large_yellow_croaker` and `japanese_seabass`, both of which also only apply to China. However, `japanese_seabass` has already been parameterised and so can be kept in with less effort, and combining `large_yellow_croaker` with `drums` (as they are similar groups) will help increase the relevance of that model. 
+
+We have combined most of these adjustments into a new, manually-curated model list. The manual list is based on the compromise list, with the following changes:
+
+- `olive_flounder` has been included to represent flatfishes
+- `tuna` and `tilapia` have been added
+- `rapa_whelk` has been removed
+- `red_seabream` and `gilthead_seabream` have been combined into `seabream`
+- Croakers and drums have been combined into a new `drum_croaker` model, which also includes meagres
+
+@fig-coverage-manual shows cumulative global production coverage under the new list (ranked by live-weight production)
+
+```{r choose-manual-models}
+#| code-summary: "Define the manually chosen model set and rank by total production"
+
+choosing_ranks_manual <- FAO_with_models %>%
+  filter(
+    model_name %in% c(
+      "atlantic_salmon", 
+      "whiteleg_shrimp", 
+      "milkfish", 
+      "rainbow_trout", 
+      "mud_crab", 
+      "nile_tilapia", 
+      "tiger_prawn", 
+      "gilthead_seabream", "red_seabream", 
+      "european_seabass", 
+      "japanese_sea_cucumber", 
+      "abalone", 
+      "golden_pompano", 
+      "grouper", 
+      "large_yellow_croaker", "whitemouth_croaker", "meagre", "drum", 
+      "japanese_amberjack", 
+      "japanese_seabass", 
+      "tuna", 
+      "olive_flounder"
+      )
+    ) %>%
+  mutate(model_name = case_when(
+    model_name %in% c("drum", "large_yellow_croaker", "whitemouth_croaker", "meagre") ~ "drum_croaker", 
+    model_name %in% c("red_seabream", "gilthead_seabream") ~ "seabream", 
+    TRUE ~ model_name)
+    ) %>% 
+  group_by(model_name) %>%
+  reframe(value = sum(value)) %>%
+  arrange(-value) %>%
+  mutate(rank = row_number()) %>%
+  ungroup() %>%
+  select(-value)
+```
+
+```{r fig-coverage-manual}
+#| fig-height: 6.5
+#| fig-width: 8.5
+#| fig-cap: "Cumulative production coverage under the manually curated model ranking. Blue line = marine coverage; red line = combined marine + brackishwater coverage. **Bold** names indicate models that are already parameterised. Dotted lines show the % of global fed marine production (blue) and marine + brackishwater production (red) that is covered by the full set of 17 chosen models."
+#| code-summary: "Plot cumulative coverage under the manually curated model ranking"
+
+model_production <- FAO_with_models %>%
+  mutate(model_name = case_when(
+    model_name %in% c("drum", "large_yellow_croaker", "whitemouth_croaker", "meagre") ~ "drum_croaker", 
+    model_name %in% c("red_seabream", "gilthead_seabream") ~ "seabream", 
+    TRUE ~ model_name)
+    ) %>% 
+  group_by(model_name) %>%
+  reframe(
+    prod_marine = drop_units(sum(value[environment == "Marine"], na.rm = TRUE)),
+    prod_both   = drop_units(sum(value, na.rm = TRUE))
+  )
+
+coverage_manual_rank <- choosing_ranks_manual %>%
+    left_join(model_production, by = "model_name") %>%
+    arrange(rank) %>%
+    mutate(
+      cum_marine = 100*cumsum(prod_marine) / grand_total_marine,
+      cum_both   = 100*cumsum(prod_both)   / grand_total_both
+    ) %>%
+    slice_head(n = 20) %>% 
+    pivot_longer(
+      cols      = c(cum_marine, cum_both),
+      names_to  = "scope",
+      values_to = "cumulative_pct"
+    ) %>%
+    mutate(scope = recode(scope,
+      "cum_marine" = "Marine only",
+      "cum_both"   = "Marine + brackishwater"
+    ))
+
+model_order <- coverage_manual_rank %>% distinct(rank, model_name) %>% arrange(rank) %>% pull(model_name) %>% rev()
+
+bold_labels <- ifelse(
+    model_order %in% all_ready,
+    paste0("**", model_order, "**"),
+    model_order
+  )
+
+vline_15_M <- coverage_manual_rank %>% filter(rank == max(rank) & scope == "Marine only") %>% pull(cumulative_pct)
+vline_15_B <- coverage_manual_rank %>% filter(rank == max(rank) & scope == "Marine + brackishwater") %>% pull(cumulative_pct)
+
+coverage_manual_rank %>%
+  mutate(model_name = factor(model_name, levels = model_order)) %>%
+  ggplot(aes(x = model_name, y = cumulative_pct, colour = scope)) +
+  geom_hline(yintercept = vline_15_M, linetype = "dashed", colour = "#2c7bb6", alpha = 0.5) +
+  geom_hline(yintercept = vline_15_B, linetype = "dashed", colour = "#d7191c", alpha = 0.5) +
+  annotate(
+    "text", x = 16, y = vline_15_M, label = sprintf("%.1f%%", vline_15_M),
+    hjust = -0.5, vjust = 0, colour = "#2c7bb6", size = 3.5
+  ) +
+  annotate(
+    "text", x = 16, y = vline_15_B, label = sprintf("%.1f%%", vline_15_B),
+    hjust = -0.5, vjust = 1, colour = "#d7191c", size = 3.5
+  ) +
+  geom_line(aes(group = scope), linewidth = 1) +
+  geom_point(size = 2.5) +
+  scale_x_discrete(labels = bold_labels) +
+  scale_y_continuous(
+    labels = scales::label_percent(scale = 1),
+    limits = c(0, 100),
+    breaks = seq(0, 100, by = 10)
+  ) +
+  scale_colour_manual(
+    values = c("Marine only" = "#2c7bb6", "Marine + brackishwater" = "#d7191c")
+  ) +
+  labs(
+    title    = "Coverage under manual model ranking",
+    subtitle = paste0("FAO data, (2011– ", max(FAO_aqua$period), ", fed species only)"),
+    x        = NULL,
+    y        = "Cumulative production coverage (%)",
+    colour   = "Production scope"
+  ) +
+  prettyplot() +
+  theme(
+    legend.position = "bottom",
+    axis.text.y     = element_markdown()
+  ) +
+  coord_flip()
+```
+
+### Geographic coverage {#sec-geographic-coverage-manual}
+
+```{r geo-coverage-setup-manual}
+#| code-summary: "Source mapping variables and calculate per-model % coverage by country"
+
+# Distinct model names selected under the manual ranking
+chosen_models <- coverage_manual_rank %>%
+  distinct(model_name) %>%
+  pull(model_name)
+
+# Denominator: total fed aquaculture production per country (all periods, all fed species)
+total_prod_country <- FAO_modern_fed %>%
+  group_by(ISO3_Code) %>%
+  summarise(total_prod = sum(drop_units(value), na.rm = TRUE), .groups = "drop")
+
+# Numerator: production per model_name × country combination
+model_prod_country <- FAO_with_models %>%
+  mutate(model_name = case_when(
+    model_name %in% c("drum", "large_yellow_croaker", "whitemouth_croaker", "meagre") ~ "drum_croaker", 
+    model_name %in% c("red_seabream", "gilthead_seabream") ~ "seabream", 
+    TRUE ~ model_name)
+    ) %>% 
+  filter(model_name %in% chosen_models) %>% 
+  group_by(ISO3_Code, model_name) %>%
+  summarise(model_prod = sum(drop_units(value), na.rm = TRUE), .groups = "drop") %>%
+  left_join(total_prod_country, by = "ISO3_Code", relationship = "many-to-many") %>%
+  mutate(
+    pct_coverage = 100 * model_prod / total_prod,
+    pct_coverage = case_when(total_prod == 0 ~ NA, TRUE ~ pct_coverage)
+    )
+
+# Complete model_prod_country so every ISO3_Code × model_name combination exists
+# (countries with no production for a given model get NA pct_coverage rather than
+#  being absent from the data, which would make them appear white instead of grey)
+model_prod_country_complete <- model_prod_country %>%
+  complete(
+    ISO3_Code = unique(worldmap_robinson$iso_a3),
+    model_name
+  )
+
+# Join each model's coverage onto the Robinson world map
+map_model_coverage <- worldmap_robinson %>%
+  left_join(model_prod_country_complete, by = c("iso_a3" = "ISO3_Code"), relationship = "many-to-many") %>%
+  select(iso_a3, model_name, model_prod, total_prod, pct_coverage, name, geometry)
+```
+
+@fig-geo-coverage-by-model-manual shows the share of each country's total fed aquaculture production that is attributed to each chosen model name.
+
+```{r fig-geo-coverage-by-model-manual}
+#| fig-height: 16
+#| fig-width: 14
+#| fig-cap: "Percentage of each country's total fed aquaculture production represented by each chosen model name (all years combined, 2011–2023). Countries shown in grey had no reported production for that model."
+#| code-summary: "Plot per-model % production coverage on Robinson projection, faceted by model_name"
+
+p_bigmap_robinson +
+  geom_sf(
+    data = map_model_coverage %>% filter(!is.na(model_name)),
+    aes(fill = pct_coverage),
+    colour = "dimgray",
+    linewidth = 0.15
+  ) +
+  facet_wrap(~model_name, ncol = 3) +
+  scale_fill_distiller(
+    palette  = "YlOrRd",
+    direction = 1,
+    na.value  = "grey85",
+    labels    = scales::label_percent(scale = 1),
+    limits    = c(0, 100),
+    name      = "% of national\nfed production"
+  ) +
+  labs(
+    title    = "Share of national fed aquaculture production by model",
+    subtitle = paste0("FAO data, 2011–", max(FAO_modern_fed$period), " (all periods combined)")
+  ) +
+  theme(
+    legend.position  = "bottom",
+    legend.key.width = unit(2, "cm"),
+    strip.text       = element_text(face = "bold", size = 9),
+    plot.title       = element_text(face = "bold")
+  )
+```
+
+```{r geo-total-coverage-setup-manual}
+#| code-summary: "Calculate total % of each country's fed production covered by all manually chosen models combined"
+
+total_coverage_country <- FAO_with_models %>%
+  mutate(model_name = case_when(
+    model_name %in% c("drum", "large_yellow_croaker") ~ "drum_croaker", 
+    TRUE ~ model_name)
+    ) %>% 
+  filter(model_name %in% chosen_models) %>% 
+  group_by(ISO3_Code) %>%
+  summarise(chosen_prod = sum(drop_units(value), na.rm = TRUE), .groups = "drop") %>%
+  left_join(total_prod_country, by = "ISO3_Code") %>%
+  mutate(
+    pct_total_coverage = 100 * chosen_prod / total_prod,
+    pct_total_coverage = case_when(total_prod == 0 ~ NA, TRUE ~ pct_total_coverage)
+    )
+
+map_total_coverage <- worldmap_robinson %>%
+  left_join(total_coverage_country, by = c("iso_a3" = "ISO3_Code")) %>% 
+  select(iso_a3, chosen_prod, total_prod, pct_total_coverage, name, geometry)
+```
+
+@fig-geo-coverage-total-manual shows the combined share of each country's total fed aquaculture production that is covered when all chosen model names are considered together.
+
+```{r fig-geo-coverage-total-manual}
+#| fig-height: 5
+#| fig-width: 10
+#| fig-cap: "Percentage of each country's total fed aquaculture production covered by all manually chosen model names combined (all years combined, 2011–2023). Countries shown in grey had no reportable fed aquaculture production in the FAO data."
+#| code-summary: "Plot total % production coverage by all chosen models on Robinson projection"
+
+p_bigmap_robinson +
+  geom_sf(
+    data = map_total_coverage,
+    aes(fill = pct_total_coverage),
+    colour = "dimgray",
+    linewidth = 0.15
+  ) +
+  scale_fill_distiller(
+    palette   = "YlOrRd",
+    direction = 1,
+    na.value  = "grey85",
+    labels    = scales::label_percent(scale = 1),
+    limits    = c(0, 100),
+    name      = "% of national\nfed production"
+  ) +
+  labs(
+    title    = "Total coverage of national fed aquaculture production by all chosen models",
+    subtitle = paste0("FAO data, 2011–", max(FAO_modern_fed$period), " (all periods combined)")
+  ) +
+  theme(
+    legend.position  = "bottom",
+    legend.key.width = unit(2, "cm"),
+    plot.title       = element_text(face = "bold")
+  )
+```
+
+# Summary of chosen models {#sec-model-summary}
+
+The 17 manually chosen model names and a representative (typically most-commonly farmed) species for each are listed in @tbl-model-summary.
+
+```{r tbl-model-summary}
+#| tbl-cap: "Manually chosen bioenergetic model names, the groups they are intended to represent, and a representative species for each. The representative species is typically the most commercially important farmed species in the group, or one that typifies the broader taxonomic category. The 'Params?' column indicates whether work has already been done to parameterise this model."
+#| code-summary: "Display summary table of chosen model names and representative species"
+
+tribble(
+  ~`Model name`, ~`Groups represented`, ~`Representative species`, ~`Params?`,
+    "atlantic_salmon",       "*Salmo* spp, non-trout Salmoniformes including arctic char (*Salvelinus alpinus*)", "Atlantic salmon (*Salmo salar*)", "Y", 
+    "whiteleg_shrimp",       "*Penaeus* spp and *Metapenaeopsis*", "Whiteleg shrimp (*Litopenaeus vannamei*)", " ", 
+    "milkfish",              "*Chanos chanos*", "Milkfish (*Chanos chanos*)", "Y", 
+    "rainbow_trout",         "*Oncorhynchus* spp", "Rainbow trout (*Oncorhynchus mykiss*)", " ", 
+    "mud_crab",              "*Scylla* spp", "Mud crab (*Scylla serrata*)", " ", 
+    "seabream",              "*Sparus* spp (almost entirely *Sparus aurata*)", "Gilthead seabream (*Sparus aurata*)", "Y", 
+    "european_seabass",      "*Dicentrarchus* spp and *Morone* spp (temperate basses)", "European seabass (*Dicentrarchus labrax*)", "Y", 
+    "japanese_sea_cucumber", "*Apostichopus* spp", "Japanese sea cucumber (*Apostichopus japonicus*)", " ", 
+    "abalone",               "*Haliotis* spp (particularly SA abalone *H. midae* and red abalone *Haliotis rufescens*)", "Japanese abalone (*Haliotis discus hannai*)"," ", 
+    "golden_pompano",        "*Trachinotus* spp", "Golden pompano (*Trachinotus ovatus*)", "Y", 
+    "grouper",               "All Serranidae, mostly *Epinephelus* spp but also including *Cephalopholis* spp, *Chromileptes* spp, *Gracila* spp, *Plectropomus* spp, *Hyporthodus* spp, and *Mycteroperca* spp", "Orange-spotted grouper (*Epinephelus coioides*)", " ", 
+    "japanese_amberjack",    "*Seriola* spp", "Japanese amberjack / Yellowtail (*Seriola quinqueradiata*)", "Y", 
+    "japanese_seabass",      "*Lateolabrax* spp", "Japanese seabass (*Lateolabrax japonicus*)", "Y", 
+    "tuna",                  "*Thunnus* spp", "Atlantic bluefin tuna (*Thunnus thynnus*)", " ", 
+    "tilapia",               "*Oreochromis* spp, *Sarotherodon* spp", "Nile tilapia (*Oreochromis niloticus*)", " ", 
+    "drum_croaker",          "All Sciaenidae including *Umbrina* spp (croakers), *Sciaenops ocellatus* (red drum) and *Cilus gilberti* (corvina drum), *Larimichthys* spp, *Miichthys* spp, *Argyrosomus* spp, *Micropogonias* spp", "Red drum (*Sciaenops ocellatus*) OR Large yellow croaker (*Larimichthys crocea*)", " ", 
+    "olive_flounder",        "All Bothidae and Pleuronectiformes (mostly *Paralichthys* spp)", "Olive flounder (*Paralichthys olivaceus*)", " "
+  ) %>%
+  gt() %>%
+  fmt_markdown(columns = c(`Groups represented`, `Representative species`)) %>%
+  cols_width(`Model name` ~ px(250), `Groups represented` ~ px(300), `Representative species` ~ px(250)) %>%
+  tab_style(
+    style = cell_text(font = system_fonts("monospace-code")),
+    locations = cells_body(columns = `Model name`)
+  ) %>%
+  tab_options(table.font.size = px(14))
+```
+
+# Save data {#sec-save-data}
+
+```{r save-data}
+#| code-summary: "Save the top 15 species and the ranked model choices"
+
+qd_save(top_species, file.path(prepdata_path, "FAO_aquaculture_top_species.qs"))
+qd_save(coverage_both_rank, file.path(prepdata_path, "coverage_both_rank.qs"))
+qd_save(coverage_marine_rank, file.path(prepdata_path, "coverage_marine_rank.qs"))
+qd_save(coverage_compromise_rank, file.path(prepdata_path, "coverage_compromise_rank.qs"))
+qd_save(coverage_manual_rank, file.path(prepdata_path, "coverage_manual_rank.qs"))
+```
+
+This next chunk saves a csv that shows all the species covered by each of the models in the ranked choice lists, for a future supplementary section.
+
+```{r save-model-species-lists}
+#| code-summary: "Build per-model species lists (Scientific_Name condensed to a single string) and save"
+
+FAO_with_models_both_rank <- FAO_with_models %>%
+  filter(model_name %in% coverage_both_rank$model_name) %>%
+  distinct(environment, model_name, Scientific_Name) %>%
+  group_by(environment, model_name) %>%
+  summarise(Scientific_Name = paste(sort(Scientific_Name), collapse = ", "), .groups = "drop")
+
+write_csv(FAO_with_models_both_rank, file.path(prepdata_path, "FAO_with_models_both_rank.csv"))
+
+FAO_with_models_marine_rank <- FAO_with_models %>%
+  filter(model_name %in% coverage_marine_rank$model_name) %>%
+  distinct(environment, model_name, Scientific_Name) %>%
+  group_by(environment, model_name) %>%
+  summarise(Scientific_Name = paste(sort(Scientific_Name), collapse = ", "), .groups = "drop")
+
+write_csv(FAO_with_models_marine_rank, file.path(prepdata_path, "FAO_with_models_marine_rank.csv"))
+
+FAO_with_models_compromise_rank <- FAO_with_models %>%
+  filter(model_name %in% coverage_compromise_rank$model_name) %>%
+  distinct(environment, model_name, Scientific_Name) %>%
+  group_by(environment, model_name) %>%
+  summarise(Scientific_Name = paste(sort(Scientific_Name), collapse = ", "), .groups = "drop")
+
+write_csv(FAO_with_models_compromise_rank, file.path(prepdata_path, "FAO_with_models_compromise_rank.csv"))
+
+FAO_with_models_2 <- FAO_with_models %>% 
+    mutate(model_name = case_when(
+      model_name %in% c("drum", "large_yellow_croaker", "whitemouth_croaker", "meagre") ~ "drum_croaker", 
+      model_name %in% c("red_seabream", "gilthead_seabream") ~ "seabream", 
+      TRUE ~ model_name)
+    )
+
+FAO_with_models_manual_rank <- FAO_with_models_2 %>%
+  filter(model_name %in% coverage_manual_rank$model_name) %>%
+  distinct(environment, model_name, Scientific_Name) %>%
+  group_by(environment, model_name) %>%
+  summarise(Scientific_Name = paste(sort(Scientific_Name), collapse = ", "), .groups = "drop")
+
+write_csv(FAO_with_models_manual_rank, file.path(prepdata_path, "FAO_with_models_manual_rank.csv"))
+```
+
+::: {style="display: flex; justify-content: space-between;"}
+[← Previous: Index](index.qmd)
+
+[Next: Assigning Locations →](02_assigning_locations.qmd)
+:::

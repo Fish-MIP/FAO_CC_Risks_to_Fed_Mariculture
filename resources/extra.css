@@ -1,0 +1,31 @@
+/* css styles */
+
+details > summary {
+  background-color: rgba(221,221,221,.65) !important;
+  border: 1px solid rgba(221,221,221,.65);
+  border-radius: .375rem;
+  padding: 0.5em;
+  font-size: 0.9em;
+  font-style: italic;
+}
+
+/* Figure captions styling */
+.figure-caption,
+figcaption {
+  text-align: left !important;
+  font-style: normal !important;
+  color: #666666;
+  margin-top: 0.5em;
+  margin-bottom: 1em;
+}
+
+/* Table captions styling */
+.table-caption,
+tblcaption {
+  text-align: left !important;
+  font-style: normal !important;
+  color: #666666;
+  margin-top: 0.5em;
+  margin-bottom: 1em;
+}
+

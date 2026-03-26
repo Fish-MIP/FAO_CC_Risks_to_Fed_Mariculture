@@ -1,0 +1,562 @@
+---
+title: "0: A demonstration of the growth model functions"
+subtitle: "FAO Climate Change Risks to Fed Mariculture"
+author: 
+  - "Tormey Reimer"
+date: last-modified
+---
+
+::: {style="display: flex; justify-content: space-between;"}
+[← Previous: Index](index.qmd)
+
+[Next: Choosing species →](01_choosing_species.qmd)
+:::
+
+```{r setup}
+#| include: false
+#| code-summary: "Load packages and set display globals"
+
+library(tidyverse)
+library(here)
+library(qs2)
+
+here("src", "model_functions.R") %>% source()
+```
+
+# Overview {#sec-overview}
+
+This document demonstrates the major functions in [`src/model_functions.R`](src/model_functions.R), which implement a bioenergetic aquaculture growth model adapted from Baldan et al. (2018). The model simulates feed intake, metabolism, growth, and waste outputs for individual fish and whole farm populations.
+
+The function hierarchy is:
+
+1. **Helper functions** — `get_nitrogen()`, `get_carbon()`, `apportion_feed()`: convert macronutrient masses to elemental outputs and partition feed into waste fractions.
+2. **Sub-functions** — `feeding_rate()`, `food_prov_rate()`: calculate temperature-dependent ingestion rates.
+3. **Population function** — `generate_pop()`: back-calculates stocking numbers from a harvest target and mortality rate.
+4. **Individual growth** — `fish_growth()`: integrates the full bioenergetic model for one individual over time.
+5. **Farm-level functions** — `farm_growth_full()`, `consolidate_farm()`, `scale_farm_population()`: run many individuals in parallel, summarise across individuals, then scale by population size. The wrapper `farm_growth()` calls all three in sequence.
+6. **Post-processing** — `decomposed_to_tidy()`, `convert_feed_to_levels()`: reshape results for plotting and analysis.
+
+The sections below work through each layer in order, using illustrative Atlantic salmon parameters. @sec-params sets up all inputs needed to run any of the functions. @sec-helpers and @sec-submodels demonstrate the lower-level building blocks. @sec-individual runs a single fish. @sec-farm runs a full farm simulation and plots the key outputs.
+
+# Setting up inputs {#sec-params}
+
+All functions share three input objects.
+
+## Species parameters {#sec-species-params}
+
+`species_params` is a named numeric vector containing all bioenergetic, individual-variability, and feeding-rate parameters. The values below are illustrative defaults for Atlantic salmon (*Salmo salar*) — replace with species-appropriate values as needed.
+
+```{r species-params}
+#| code-summary: "Define species_params — edit this chunk for your species"
+
+species_params <- c(
+  # --- Bioenergetic parameters ---
+  alpha     = 0.04,     # [-]        Feeding catabolism coefficient
+  epsprot   = 23600,    # [J/gprot]  Energy content of protein
+  epslip    = 36200,    # [J/glip]   Energy content of lipid
+  epscarb   = 17200,    # [J/gcarb]  Energy content of carbohydrate
+  epsO2     = 13400,    # [J/gO2]    Energy consumed per g of O2 respired
+  pk        = 0.05,     # [1/day]    Temperature coefficient for fasting catabolism
+  k0        = 0.003,    # [1/°C]     Fasting catabolism at 0 °C
+  m         = 0.75,     # [-]        Weight exponent for anabolism
+  n         = 1,        # [-]        Weight exponent for catabolism
+  betac     = 0.3234,   # [-]        Shape coefficient for the H(Tw) feeding function
+  Tma       = 26,       # [°C]       Maximum (lethal) feeding temperature
+  Toa       = 16,       # [°C]       Optimal feeding temperature
+  Taa       = 2,        # [°C]       Minimum (lower) feeding temperature
+  omega     = 0.6542,   # [gO2/g]    Oxygen consumption–weight loss ratio
+  a         = 2663,     # [J/g]      Energy density coefficient of somatic tissue
+  k         = 0.1715,   # [-]        Weight exponent for energy content of tissue
+  eff       = 0.97,     # [-]        Food ingestion efficiency (encounter → ingestion)
+  # --- Population / individual-variability parameters ---
+  meanW     =  125,     # [g]        Mean initial individual weight at stocking
+  deltaW    =  10,      # [g]        SD of initial individual weight
+  meanImax  =  0.035,   # [g/g/d]    Mean maximum mass-specific ingestion coefficient
+  deltaImax  = 0.0035,  # [g/g/d]    SD of maximum ingestion coefficient
+  overFmean  = 0.025,   # [g/g/d]    Mean of overfeeding coefficient
+  overFdelta = 0.0045   # [g/g/d]    SD of maximum ingestion coefficient
+)
+```
+
+## Feed parameters {#sec-feed-params}
+
+`feed_params` is a named list with one entry per macronutrient. Each entry holds three vectors:
+
+- **ingred_proportion**: The proportion of each ingredient in the feed (0-1). Note that this will be identical for all macronutrients and MUST SUM TO 1.
+- **ingred_macro**: The proportion of each ingredient that is composed of that macronutrient (0-1).
+- **digest**: The digestibility of that macronutrient, in that ingredient (0-1).
+
+For whole-feed model runs where ingredients are not seperated, `ingred_proportion` == 1 for all list elements.
+
+```{r feed-params}
+#| code-summary: "Define feed_params — edit proportions and digestibilities for your feed"
+
+# Example where seperate ingredients within feed are considered
+feed_params_ingredient <- list(
+  Proteins = list(
+    ingred_proportion = c(0.3, 0.3, 0.4),
+    ingred_macro      = c(0.25, 0.5, 0.02),
+    digest            = c(0.85, 0.9, 0.75)
+  ),
+  Lipids = list(
+    ingred_proportion = c(0.3, 0.3, 0.4),
+    ingred_macro      = c(0.1, 0.15, 0.9),
+    digest            = c(0.2, 0.95, 0.85)
+  ),
+  Carbohydrates = list(
+    ingred_proportion = c(0.3, 0.3, 0.4),
+    ingred_macro      = c(0.6, 0.2, 0.05),
+    digest            = c(0.45, 0.5, 0.95)
+  )
+)
+
+# Example where only whole-feed is considered
+feed_params_whole <- list(
+  Proteins = list(
+    ingred_proportion = 1,
+    ingred_macro      = 0.25,
+    digest            = 0.85
+  ),
+  Lipids = list(
+    ingred_proportion = 1,
+    ingred_macro      = 0.2,
+    digest            = 0.90
+  ),
+  Carbohydrates = list(
+    ingred_proportion = 1,
+    ingred_macro      = 0.55,
+    digest            = 0.65
+  )
+)
+```
+
+## Time vector and water temperature {#sec-times-temp}
+
+`times` controls the integration window and time-step. `water_temp` is a numeric vector of daily sea surface temperatures for the grow-out period. Here a simple sinusoidal annual cycle is used as a placeholder, as shown in @fig-times-and-temp.
+
+```{r fig-times-and-temp}
+#| code-summary: "Define simulation duration and water temperature trajectory"
+#| fig-cap: "Simulated sinusoidal water temperature trajectory over the grow-out period. Dashed lines indicate the minimum (Taa), optimal (Toa), and maximum (Tma) feeding temperatures."
+
+grow_out_days <- 365L   # Duration of the grow-out cycle (days)
+
+times <- c(
+  t_start = 1L,              # First time-step index
+  t_end   = grow_out_days,   # Last time-step index
+  dt      = 1L               # Time-step size (days)
+)
+
+# Sinusoidal temperature trajectory: mean 12 °C, amplitude ±4 °C
+# Replace with observed or projected SST data for real analyses
+set.seed(42)
+water_temp <- 12 + 4 * sin(seq(0, 2 * pi, length.out = grow_out_days)) +
+  rnorm(grow_out_days, 0, 0.3)
+
+# Quick check
+data.frame(day = 1:grow_out_days, temp_C = water_temp) %>%
+  ggplot(aes(day, temp_C)) +
+  geom_line(colour = "#2171b5") +
+  geom_hline(yintercept = c(species_params["Taa"], species_params["Toa"], species_params["Tma"]),
+             linetype = "dashed", colour = c("blue", "green3", "red"), alpha = 0.7) +
+  annotate("text", x = 5, y = species_params["Taa"] + 0.4, label = "Taa", hjust = 0, size = 3) +
+  annotate("text", x = 5, y = species_params["Toa"] + 0.4, label = "Toa", hjust = 0, size = 3) +
+  annotate("text", x = 5, y = species_params["Tma"] + 0.4, label = "Tma", hjust = 0, size = 3) +
+  labs(x = "Day", y = "Water temperature (°C)",
+       title = "Simulated water temperature trajectory") +
+  theme_classic()
+```
+
+## Population trajectory {#sec-population}
+
+`generate_pop()` back-calculates the stocking density from a target harvest number and a constant daily mortality rate, returning a forward-order population vector. @fig-population-trajectory shows the resulting population decline over time.
+
+```{r fig-population-trajectory}
+#| code-summary: "Generate population trajectory via generate_pop()"
+#| fig-cap: "Population trajectory back-calculated from the harvest target, showing daily mortality-driven decline from stocking to harvest."
+
+harvest_n   <- 10000L   # Target number of fish alive at harvest
+daily_mort  <- 0.0002   # Daily mortality rate (negative = gains)
+
+N_pop <- generate_pop(
+  harvest_n = harvest_n,
+  mort      = daily_mort,
+  times     = times
+)
+
+data.frame(day = 1:grow_out_days, n_fish = N_pop) %>%
+  ggplot(aes(day, n_fish)) +
+  geom_line(colour = "#d94701") +
+  labs(x = "Day", y = "Number of individuals",
+       title = "Population trajectory (back-calculated from harvest)") +
+  theme_classic()
+```
+
+# Helper and sub-model functions {#sec-helpers}
+
+## Temperature-dependent feeding rate {#sec-feeding-rate}
+
+`feeding_rate()` returns a scalar in [0, 1] that scales potential ingestion based on current water temperature. The function returns 0 outside the viable range (\(T_{aa}\) to \(T_{ma}\)) and 1 at the optimum (\(T_{oa}\)).
+
+```{r fig-feeding-rate}
+#| code-summary: "Plot the temperature-dependent feeding rate function"
+#| fig-cap: "Temperature-dependent relative feeding rate H(Tw). The curve peaks at the optimal feeding temperature (Toa) and drops to zero at the minimum (Taa) and maximum (Tma) limits."
+
+temp_range <- seq(species_params["Taa"]-5, species_params["Tma"], length.out = 200)
+
+data.frame(
+  temp_C        = temp_range,
+  feeding_rate  = feeding_rate(temp_range, species_params)
+) %>%
+  ggplot(aes(temp_C, feeding_rate)) +
+  geom_line(colour = "#238443", linewidth = 1) +
+  geom_vline(xintercept = c(species_params["Taa"], species_params["Toa"], species_params["Tma"]),
+             linetype = "dashed", colour = c("blue", "green3", "red"), alpha = 0.7) +
+  scale_y_continuous(limits = c(0, 1.05)) +
+  labs(x = "Water temperature (°C)", y = "Relative feeding rate H(Tw)",
+       title = "Temperature-dependent feeding rate") +
+  theme_classic()
+```
+
+@fig-feeding-rate shows the shape of $H(T_w)$. The peak is at $T_{oa}$ = `r species_params["Toa"]` °C, with the curve controlled by the shape parameter $\beta_c$ = `r species_params["betac"]`.
+
+## Elemental conversion helpers {#sec-elemental}
+
+`get_nitrogen()` and `get_carbon()` convert macronutrient masses to nitrogen and carbon masses respectively, using fixed elemental conversion factors. These are used internally by `farm_growth_full()` and can also be called directly for post-processing.
+
+```{r elemental-helpers}
+#| code-summary: "Demonstrate get_nitrogen() and get_carbon()"
+
+# Example: 100 g of feed containing 44 g protein, 20 g lipid, 15 g carbohydrate
+P_feed <- 44; L_feed <- 20; C_feed <- 15
+
+n_in_feed <- get_nitrogen(P = P_feed)
+c_in_feed <- get_carbon(P = P_feed, L = L_feed, C = C_feed)
+
+cat(sprintf(
+  "100g Feed composition:  %g g protein, %g g lipid, %g g carbohydrate\n",
+  P_feed, L_feed, C_feed
+))
+cat(sprintf("  Nitrogen content: %.2f g  (= protein / 6.25)\n", n_in_feed))
+cat(sprintf("  Carbon content:   %.2f g  (from P + L + C fractions)\n", c_in_feed))
+```
+
+## Feed apportioning {#sec-apportion}
+
+`apportion_feed()` partitions a single macronutrient component of the daily ration into uneaten, assimilated, and faecally excreted fractions. It can handle both whole-feed parameters and ingredient-seperated parameters.
+
+```{r apportion-feed-demo}
+#| code-summary: "Demonstrate apportion_feed() for a single time-step"
+
+# Suppose at one time-step: 50 g feed provided, 42 g ingested
+provided <- 50; ingested <- 42
+
+protein_fractions <- apportion_feed(
+  provided           = provided,
+  ingested           = ingested,
+  ingred_proportion  = feed_params_ingredient[["Proteins"]]$ingred_proportion,
+  ingred_macro       = feed_params_ingredient[["Proteins"]]$ingred_macro,
+  digestibility      = feed_params_ingredient[["Proteins"]]$digest
+)
+
+cat("Protein apportionment from ingredient-seperated feed (g):\n")
+print(round(protein_fractions, 3))
+
+protein_fractions <- apportion_feed(
+  provided           = provided,
+  ingested           = ingested,
+  ingred_proportion  = feed_params_whole[["Proteins"]]$ingred_proportion,
+  ingred_macro       = feed_params_whole[["Proteins"]]$ingred_macro,
+  digestibility      = feed_params_whole[["Proteins"]]$digest
+)
+
+cat("Protein apportionment from whole feed (g):\n")
+print(round(protein_fractions, 3))
+```
+
+# Individual fish growth {#sec-individual}
+
+`fish_growth()` integrates the bioenergetic model for one individual over the full grow-out period, returning a matrix with 22 state variables at each daily time-step. You must supply an initial body weight (`init_weight`) and a maximum ingestion coefficient (`ingmax`).
+
+```{r individual-fish-growth}
+#| code-summary: "Run fish_growth() for a single individual"
+
+one_fish <- fish_growth(
+  species_params = species_params,
+  water_temp     = water_temp,
+  feed_params    = feed_params_whole,
+  times          = times,
+  init_weight    = species_params["meanW"],    # Use mean stocking weight
+  ingmax         = species_params["meanImax"]  # Use mean ingestion coefficient
+)
+
+cat(sprintf("Result dimensions: %d days × %d variables\n", nrow(one_fish), ncol(one_fish)))
+cat("Available variables:\n")
+cat(paste(colnames(one_fish), collapse = ", "), "\n")
+cat(sprintf("\nFinal weight: %.1f g  (started at %.1f g)\n",
+            tail(one_fish[, "weight"], 1), one_fish[1, "weight"]))
+```
+
+@fig-individual-weight shows the weight trajectory of this individual throughout the grow-out cycle. @fig-individual-waste shows the daily waste outputs.
+
+```{r fig-individual-weight}
+#| code-summary: "Plot individual weight trajectory"
+#| fig-height: 12
+#| fig-cap: "Individual fish weight trajectory over the grow-out period, simulated using fish_growth(). Note that all outputs (except weight) are NA on the harvest (last) day."
+
+as.data.frame(one_fish) %>%
+  pivot_longer(
+    cols = !contains("days"),
+    names_to = "output_var",
+    values_to = "value"
+  ) %>% 
+  ggplot(aes(days, value)) +
+  geom_line(colour = "#2171b5", linewidth = 1) +
+  facet_wrap(~output_var, scales = "free", ncol = 4) +
+  labs(x = "Day", y = "Weight (g)",
+       title = "Individual fish outputs") +
+  theme_classic()
+```
+
+You can subset the variables you want returned in case you don't want to deal with the whole gamut of output variables.
+
+```{r individual-fish-waste}
+#| code-summary: "Run fish_growth() for a single individual with a limited selection of variables"
+
+one_fish <- fish_growth(
+  species_params = species_params,
+  water_temp     = water_temp,
+  feed_params    = feed_params_whole,
+  times          = times,
+  init_weight    = species_params["meanW"],    # Use mean stocking weight
+  ingmax         = species_params["meanImax"],  # Use mean ingestion coefficient
+  output_vars = c("P_excr", "L_excr", "C_excr", "P_uneat", "L_uneat", "C_uneat")
+)
+
+cat(sprintf("Result dimensions: %d days × %d variables\n", nrow(one_fish), ncol(one_fish)))
+cat("Available variables:\n")
+cat(paste(colnames(one_fish), collapse = ", "), "\n")
+```
+
+```{r fig-individual-waste}
+#| code-summary: "Plot daily waste outputs for the individual"
+#| fig-cap: "Daily protein, lipid, and carbohydrate excretion and uneaten-feed waste for one individual fish."
+
+as.data.frame(one_fish) %>%
+  pivot_longer(-days, names_to = "variable", values_to = "value") %>%
+  mutate(
+    fraction = if_else(str_detect(variable, "excr"), "Excreted (faecal)", "Uneaten feed"),
+    nutrient = case_when(
+      str_detect(variable, "^P") ~ "Protein",
+      str_detect(variable, "^L") ~ "Lipid",
+      str_detect(variable, "^C") ~ "Carbohydrate"
+    )
+  ) %>%
+  ggplot(aes(days, value, colour = nutrient, linetype = fraction)) +
+  geom_line(alpha = 0.8) +
+  labs(x = "Day", y = "Mass (g/day)", colour = "Macronutrient",
+       linetype = "Waste fraction",
+       title = "Individual fish daily waste outputs") +
+  theme_classic()
+```
+
+# Farm-level simulation {#sec-farm}
+
+## Running the full farm {#sec-farm-full}
+
+`farm_growth()` is the main wrapper. It runs `MC_pop` individuals in parallel (Monte Carlo sampling of initial weights and ingestion rates from the distributions defined in `species_params`), consolidates the individual trajectories to per-time-step means and standard deviations, then scales population-total variables by `N_pop`.
+
+```{r wrapper-pipeline}
+#| code-fold: false
+#| eval: false
+#| code-summary: "Show the main pipeline steps that are included in the `farm_growth()` wrapper"
+
+# Step 1: Get the full (individualised) results for all Monte-Carlo-sampled individual fish in the farm.
+farm_results_full <- farm_growth_full(
+  species_params    = species_params,
+  feed_params       = feed_params_whole,
+  water_temp        = water_temp,
+  times             = times,
+  use_MC_population = TRUE,        # Sample individual variability
+  MC_pop            = 200          # Number of Monte Carlo individuals
+)
+
+# Consolidate all MC-sampled individuals in the farm into a representative mean and SD for each stat
+consolidated_results  <- consolidate_farm(farm_results_full)
+
+# Scale certain parameters by farm population to obtain a farm-level version of some of those stats
+scaled_farm_results <- scale_farm_population(
+  consolidated_results, 
+  N_pop = N_pop
+)
+```
+
+The result is a named list of three-column matrices — one per variable — each with columns `[days, mean, SD]` and names suffixed with `_stat`.
+
+```{r farm-growth}
+#| code-summary: "Run the full farm simulation with farm_growth()"
+
+plan(multisession)  # Enable parallel processing via furrr
+
+farm_results <- farm_growth(
+  species_params    = species_params,
+  feed_params       = feed_params_whole,
+  water_temp        = water_temp,
+  times             = times,
+  N_pop             = N_pop,       # Number of actual individuals in the farm
+  use_MC_population = TRUE,        # Sample individual variability
+  MC_pop            = 200          # Number of Monte Carlo individuals
+)
+
+plan(sequential)  # Return to sequential after parallel run
+
+cat("Output variables (each is a days × mean × SD matrix):\n")
+cat(paste(names(farm_results$stats), collapse = "\n"), "\n")
+```
+
+## Inspecting the structure {#sec-farm-structure}
+
+There are two elements in `farm_results`. The first contains a vector of the days, which applies to the entire farm. The second element is a list of results. Each of these elements is a two-column matrix. The first column is the mean, and the second is the standard deviation.
+
+```{r farm-structure}
+#| code-summary: "Inspect the structure of farm_results"
+
+# Days element
+head(farm_results$days)
+
+# Example: weight_scaled — total farm biomass over time
+head(farm_results$stats[["weight_scaled"]])
+```
+
+## Plotting farm biomass and waste {#sec-farm-plots}
+
+@fig-farm-biomass shows the total farm biomass trajectory with uncertainty bands. @fig-farm-waste shows the total daily waste outputs over the grow-out period.
+
+```{r fig-farm-biomass}
+#| code-summary: "Plot total farm biomass over time"
+#| fig-cap: "Total farm biomass (kg) over the grow-out period. Shaded ribbon shows ±1 SD across Monte Carlo individuals, scaled by the population trajectory."
+
+cbind(
+  as.data.frame(farm_results$days),
+  as.data.frame(farm_results$stats[["weight_scaled"]])
+  ) %>%
+  setNames(c("day", "mean_g", "sd_g")) %>%
+  mutate(
+    mean_kg = mean_g / 1000,
+    lo_kg   = (mean_g - sd_g) / 1000,
+    hi_kg   = (mean_g + sd_g) / 1000
+  ) %>%
+  ggplot(aes(day)) +
+  geom_ribbon(aes(ymin = lo_kg, ymax = hi_kg), fill = "#6baed6", alpha = 0.35) +
+  geom_line(aes(y = mean_kg), colour = "#2171b5", linewidth = 1) +
+  labs(x = "Day", y = "Total biomass (kg)",
+       title = "Total farm biomass") +
+  theme_classic()
+```
+
+```{r fig-farm-waste}
+#| code-summary: "Plot total daily waste from the farm"
+#| fig-cap: "Total daily waste outputs from the farm: nitrogen and carbon lost via excretion and uneaten feed."
+
+waste_vars <- c("total_nitrogen_scaled", "total_carbon_scaled")
+
+map_dfr(waste_vars, function(nm) {
+  cbind(
+    as.data.frame(farm_results$days),
+    as.data.frame(farm_results$stats[[nm]])
+   ) %>%
+    setNames(c("day", "mean", "sd")) %>%
+    mutate(variable = nm)
+}) %>%
+  mutate(variable = str_remove(variable, "_stat") %>%
+           str_replace("total_", "Total ") %>%
+           str_replace("_", " ")) %>%
+  ggplot(aes(day)) +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd, fill = variable), alpha = 0.3) +
+  geom_line(aes(y = mean, colour = variable), linewidth = 0.9) +
+  facet_wrap(~variable, scales = "free") +
+  labs(x = "Day", y = "Mass lost per day (g)",
+       colour = NULL, fill = NULL,
+       title = "Total farm nutrient waste outputs") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+## Accessing full individual trajectories {#sec-farm-full-decomposed}
+
+To examine individual-level variation — for example when plotting per-fish trajectories or comparing simulated individuals — use `farm_growth_full()` directly. The result is a named list of `MC_pop × n_days` matrices. `decomposed_to_tidy()` reshapes a selection of these into a tidy long-format data frame.
+
+```{r farm-full-decomposed}
+#| code-summary: "Run farm_growth_full() and convert to tidy format with decomposed_to_tidy()"
+
+plan(multisession)
+
+full_results <- farm_growth_full(
+  species_params    = species_params,
+  feed_params       = feed_params_whole,
+  water_temp        = water_temp,
+  times             = times,
+  use_MC_population = TRUE,
+  MC_pop            = 50,          # Fewer runs for quick illustration
+  output_vars       = c("weight", "ing_act", "O2", "NH4")
+)
+
+plan(sequential)
+
+# Convert selected variables to a tidy data frame
+tidy_results <- decomposed_to_tidy(
+  full_results = full_results,
+  output_vars  = NULL             # Since I already 
+)
+
+head(tidy_results)
+```
+
+@fig-individual-weight-spread shows weight trajectories across all 50 simulated individuals, illustrating the Monte Carlo population variability.
+
+```{r fig-individual-weight-spread}
+#| code-summary: "Plot weight trajectories across Monte Carlo individuals"
+#| fig-cap: "Several measure trajectories for 50 simulated individuals. Variability arises from Monte Carlo sampling of initial weight and maximum ingestion rate from the distributions defined in species_params."
+
+tidy_results %>%
+  ggplot(aes(prod_t, value, group = fish)) +
+  geom_line(alpha = 0.25, colour = "#2171b5", linewidth = 0.3) +
+  facet_wrap(~measure, scales = "free") +
+  labs(x = "Day", y = "Weight (g)",
+       title = "Individual weight trajectories (Monte Carlo population)") +
+  theme_classic()
+```
+
+## Deterministic (no population variability) run {#sec-farm-deterministic}
+
+Setting `use_MC_population = FALSE` removes individual variability and forces `MC_pop` to 1.
+
+```{r farm-deterministic}
+#| code-summary: "Run farm_growth() without Monte Carlo population variability"
+
+farm_det <- farm_growth(
+  species_params    = species_params,
+  feed_params       = feed_params_whole,
+  water_temp        = water_temp,
+  times             = times,
+  N_pop             = N_pop,
+  use_MC_population = FALSE,
+  MC_pop            = 100,    # this number is IGNORED
+)
+
+cat(
+  sprintf(
+    "Deterministic final biomass: %.0f kg\n",
+    tail(farm_det$stats[["weight"]][, 1], 1) / 1000
+  ),
+  sprintf(
+    "SD of final biomass: %.0f\n",
+    tail(farm_det$stats[["weight"]][, 2], 1) / 1000
+  )
+)
+```
+
+::: {style="display: flex; justify-content: space-between;"}
+[← Previous: Index](index.qmd)
+
+[Next: Choosing species →](01_choosing_species.qmd)
+:::

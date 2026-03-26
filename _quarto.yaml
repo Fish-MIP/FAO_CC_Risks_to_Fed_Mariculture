@@ -1,15 +1,19 @@
 project:
+  title: "FAO Climate Change Risks to Fed Mariculture"
   type: default
-  output-dir: docs-rendered
+  output-dir: documentation
   render: 
-    - docs-working/index.qmd
-    - docs-working/page_1.qmd
+    - index.qmd
+    - 00_model_function_demonstration.qmd
+    - 01_choosing_species.qmd
+    # - 02_assigning_locations.qmd
 
 format:
   html:
     theme: simplex
-    css: ["docs-working/extra.css"]
+    css: ["resources/extra.css"]
     embed-resources: true
+    lightbox: true
     code-fold: true
     code-overflow: wrap
     toc: true
@@ -27,7 +31,7 @@ execute:
   eval: true
   cache: true # quarto render --cache-refresh
 
-bibliography: ["docs-working/refs.bib", "docs-working/manual-refs.bib"]
+bibliography: ["resources/references.bib"]
 
 knitr: 
   opts_chunk:
