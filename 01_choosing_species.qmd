@@ -1081,9 +1081,11 @@ tribble(
     "atlantic_salmon",       "*Salmo* spp, non-trout Salmoniformes including arctic char (*Salvelinus alpinus*)", "Atlantic salmon (*Salmo salar*)", "Y", 
     "whiteleg_shrimp",       "*Penaeus* spp and *Metapenaeopsis*", "Whiteleg shrimp (*Litopenaeus vannamei*)", " ", 
     "milkfish",              "*Chanos chanos*", "Milkfish (*Chanos chanos*)", "Y", 
+    "tiger_prawn",           "  ", " ", " ", 
     "rainbow_trout",         "*Oncorhynchus* spp", "Rainbow trout (*Oncorhynchus mykiss*)", " ", 
-    "mud_crab",              "*Scylla* spp", "Mud crab (*Scylla serrata*)", " ", 
     "seabream",              "*Sparus* spp (almost entirely *Sparus aurata*)", "Gilthead seabream (*Sparus aurata*)", "Y", 
+    "drum_croaker",          "All Sciaenidae including *Umbrina* spp (croakers), *Sciaenops ocellatus* (red drum) and *Cilus gilberti* (corvina drum), *Larimichthys* spp, *Miichthys* spp, *Argyrosomus* spp, *Micropogonias* spp", "Red drum (*Sciaenops ocellatus*) OR Large yellow croaker (*Larimichthys crocea*)", " ", 
+    "mud_crab",              "*Scylla* spp", "Mud crab (*Scylla serrata*)", " ", 
     "european_seabass",      "*Dicentrarchus* spp and *Morone* spp (temperate basses)", "European seabass (*Dicentrarchus labrax*)", "Y", 
     "japanese_sea_cucumber", "*Apostichopus* spp", "Japanese sea cucumber (*Apostichopus japonicus*)", " ", 
     "abalone",               "*Haliotis* spp (particularly SA abalone *H. midae* and red abalone *Haliotis rufescens*)", "Japanese abalone (*Haliotis discus hannai*)"," ", 
@@ -1091,10 +1093,9 @@ tribble(
     "grouper",               "All Serranidae, mostly *Epinephelus* spp but also including *Cephalopholis* spp, *Chromileptes* spp, *Gracila* spp, *Plectropomus* spp, *Hyporthodus* spp, and *Mycteroperca* spp", "Orange-spotted grouper (*Epinephelus coioides*)", " ", 
     "japanese_amberjack",    "*Seriola* spp", "Japanese amberjack / Yellowtail (*Seriola quinqueradiata*)", "Y", 
     "japanese_seabass",      "*Lateolabrax* spp", "Japanese seabass (*Lateolabrax japonicus*)", "Y", 
-    "tuna",                  "*Thunnus* spp", "Atlantic bluefin tuna (*Thunnus thynnus*)", " ", 
-    "tilapia",               "*Oreochromis* spp, *Sarotherodon* spp", "Nile tilapia (*Oreochromis niloticus*)", " ", 
-    "drum_croaker",          "All Sciaenidae including *Umbrina* spp (croakers), *Sciaenops ocellatus* (red drum) and *Cilus gilberti* (corvina drum), *Larimichthys* spp, *Miichthys* spp, *Argyrosomus* spp, *Micropogonias* spp", "Red drum (*Sciaenops ocellatus*) OR Large yellow croaker (*Larimichthys crocea*)", " ", 
-    "olive_flounder",        "All Bothidae and Pleuronectiformes (mostly *Paralichthys* spp)", "Olive flounder (*Paralichthys olivaceus*)", " "
+    "nile_tilapia",          "*Oreochromis* spp, *Sarotherodon* spp", "Nile tilapia (*Oreochromis niloticus*)", " ", 
+    "olive_flounder",        "All Bothidae and Pleuronectiformes (mostly *Paralichthys* spp)", "Olive flounder (*Paralichthys olivaceus*)", " ",
+    "tuna",                  "*Thunnus* spp", "Atlantic bluefin tuna (*Thunnus thynnus*)", " " 
   ) %>%
   gt() %>%
   fmt_markdown(columns = c(`Groups represented`, `Representative species`)) %>%

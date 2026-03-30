@@ -13,6 +13,8 @@ These scripts extract and tidy raw data for use further down the line. Where pos
 | Script | Description |
 |:-------------------|:----------------------------------------------------------------|
 | [historical-sst.R](data-prep-scripts/historical-sst.R) | Description |
+| [aquaculture-production-data.R](data-prep-scripts\aquaculture-production-data.R) | |
+| [mariculture-locations.R](data-prep-scripts\mariculture-locations.R) | |
 
 # Analysis
 
@@ -20,6 +22,8 @@ These scripts....
 
 | Script | Description |
 |:-------------------|:----------------------------------------------------------------|
-| [01_choosing_species.qmd](01_choosing_species.qmd) | Identifies the top 25 most-produced fed marine and brackishwater aquaculture species using FAO data from 2011 onwards, ranked by cumulative production volume. Includes production trends over time and an assessment of how much of global aquaculture production the top 25 species collectively represent. |
+| [00_model_function_demonstration.qmd](00_model_function_demonstration.html) | |
+| [01_choosing_species.qmd](01_choosing_species.html) | Identifies the top 25 most-produced fed marine and brackishwater aquaculture species using FAO data from 2011 onwards, ranked by cumulative production volume. Includes production trends over time and an assessment of how much of global aquaculture production the top 25 species collectively represent. |
+| [02_01_check_species_european_seabass.qmd](02_01_check_species_european_seabass.html) | |
 
 

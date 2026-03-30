@@ -33,7 +33,6 @@ library(here)
 # species_params['a']             [J/gtissue]    Energy content of fish tissue
 # species_params['k']             [-]            Weight exponent for energy content
 # species_params['eff']           [-]            Food ingestion efficiency
-# species_params['fcr']           [-]            Food conversion ratio
 # --- Population / individual-variability parameters ---
 # species_params['meanW']         [g]            Mean initial individual weight
 # species_params['deltaW']        [g]            SD of initial individual weight
@@ -195,6 +194,295 @@ apportion_feed <- function(provided, ingested, ingred_proportion, ingred_macro, 
     assimilated  = sum(assimilated_g, na.rm = T),
     excreted     = sum(ingested_g - assimilated_g, na.rm = T)
   )
+}
+
+
+# ---------------------------------------------------------------------------
+# Input validation for fish_growth()
+# ---------------------------------------------------------------------------
+
+#' Check that all inputs required by \code{fish_growth()} are present and valid
+#'
+#' Performs comprehensive pre-flight checks on every argument accepted by
+#' \code{\link{fish_growth}} without actually running the model.  All detected
+#' problems are collected and printed as human-readable messages at the end of
+#' the call, so every issue is visible at once rather than surfacing one at a
+#' time as runtime errors.
+#'
+#' @param species_params Named numeric vector of combined species and population
+#'   parameters (see file header for full definitions). Must contain all 24
+#'   required names: \code{alpha}, \code{epsprot}, \code{epslip},
+#'   \code{epscarb}, \code{epsO2}, \code{pk}, \code{k0}, \code{m}, \code{n},
+#'   \code{betac}, \code{Tma}, \code{Toa}, \code{Taa}, \code{omega}, \code{a},
+#'   \code{k}, \code{eff}, \code{meanW}, \code{deltaW},
+#'   \code{meanImax}, \code{deltaImax}, \code{overFmean}, \code{overFdelta}.
+#' @param water_temp Numeric vector. Water temperature (°C) at each time-step.
+#'   Length must equal the number of days in the simulation as defined by
+#'   \code{times}.
+#' @param feed_params Named list with one element per macronutrient
+#'   (\code{Proteins}, \code{Lipids}, \code{Carbohydrates}). Each element is
+#'   itself a named list with fields \code{proportion}, \code{macro}, and
+#'   \code{digest}.
+#' @param times Named numeric vector with elements \code{t_start},
+#'   \code{t_end}, and \code{dt}.
+#' @param init_weight Numeric scalar. Initial individual weight (g).
+#' @param ingmax Numeric scalar. Maximum mass-specific ingestion coefficient.
+#' @param output_vars Character vector. Must contain only names from the 31
+#'   valid output variables (see \code{\link{fish_growth}} for the full list).
+#'   Defaults to all 31 variables and is not required to be supplied.
+#'
+#' @return Invisibly returns \code{TRUE} if all checks pass, or \code{FALSE} if
+#'   any problems were found.  In both cases a summary is printed to the console.
+check_fish_growth_inputs <- function(
+  species_params,
+  water_temp,
+  feed_params,
+  times,
+  init_weight,
+  ingmax,
+  output_vars = c(
+    "weight", "dw", "water_temp", "T_response",
+    "P_excr", "L_excr", "C_excr",
+    "P_uneat", "L_uneat", "C_uneat",
+    "food_prov", "food_enc", "rel_feeding",
+    "ing_pot", "ing_act", "E_assim", "E_somat",
+    "anab", "catab", "O2", "NH4",
+    "total_excr", "total_uneat", "metab",
+    "nitrogen_excr", "nitrogen_uneat",
+    "carbon_excr", "carbon_uneat",
+    "total_carbon", "total_nitrogen"
+  )
+) {
+
+  problems <- character(0)   # Accumulate all issues here
+
+  # ---- Helpers ---------------------------------------------------------------
+  add_problem <- function(...) {
+    problems <<- c(problems, paste0(...))
+  }
+
+  # ---- 1. species_params -----------------------------------------------------
+  required_sp_names <- c(
+    "alpha", "epsprot", "epslip", "epscarb", "epsO2",
+    "pk", "k0", "m", "n", "betac",
+    "Tma", "Toa", "Taa", "omega",
+    "a", "k", "eff", 
+    "meanW", "deltaW", "meanImax", "deltaImax",
+    "overFmean", "overFdelta"
+  )
+
+  if (missing(species_params)) {
+    add_problem("Parameter `species_params` is missing. Provide a named numeric vector containing: ",
+                paste(required_sp_names, collapse = ", "), ".")
+  } else {
+    if (!is.numeric(species_params)) {
+      add_problem("Provided parameter `species_params` must be a numeric vector, but has class: <",
+                  paste(class(species_params), collapse = "/"), ">.")
+    }
+    if (is.null(names(species_params)) || !is.character(names(species_params))) {
+      add_problem("Provided parameter `species_params` must be a *named* numeric vector ",
+                  "(e.g. c(\"alpha\" = 0.3, \"m\" = 0.7, ...)).")
+    } else {
+      missing_sp <- setdiff(required_sp_names, names(species_params))
+      for (nm in missing_sp) {
+        add_problem("Parameter `", nm, "` is missing. Provide it in `species_params`.")
+      }
+      # Warn about any NA values in present required params
+      present_sp <- intersect(required_sp_names, names(species_params))
+      na_sp <- present_sp[is.na(species_params[present_sp])]
+      for (nm in na_sp) {
+        add_problem("Parameter `", nm, "` in `species_params` is NA. Provide a valid numeric value.")
+      }
+    }
+  }
+
+  # ---- 2. times --------------------------------------------------------------
+  required_times_names <- c("t_start", "t_end", "dt")
+
+  if (missing(times)) {
+    add_problem("Parameter `times` is missing. Provide a named numeric vector ",
+                "e.g. c(\"t_start\" = 1, \"t_end\" = 365, \"dt\" = 1).")
+    times <- NULL   # ensure later checks that depend on times fail gracefully
+  } else {
+    if (!is.numeric(times)) {
+      add_problem("Provided parameter `times` must be a numeric vector, but has class: <",
+                  paste(class(times), collapse = "/"), ">.")
+      times <- NULL
+    } else if (is.null(names(times)) || !is.character(names(times))) {
+      add_problem("Provided parameter `times` needs to be in the form of a named vector ",
+                  "e.g. c(\"t_start\" = 1, \"t_end\" = 365, \"dt\" = 1).")
+      times <- NULL
+    } else {
+      missing_t <- setdiff(required_times_names, names(times))
+      for (nm in missing_t) {
+        add_problem("Provided parameter `times` is missing the \"", nm, "\" element. ",
+                    "Provide a named numeric vector e.g. c(\"t_start\" = 1, \"t_end\" = 365, \"dt\" = 1).")
+      }
+      if (length(missing_t) == 0) {
+        if (times["t_end"] <= times["t_start"]) {
+          add_problem("In `times`, `t_end` (", times["t_end"], ") must be greater than `t_start` (",
+                      times["t_start"], ").")
+        }
+        if (times["dt"] <= 0) {
+          add_problem("In `times`, `dt` must be a positive number (currently ", times["dt"], ").")
+        }
+      }
+    }
+  }
+
+  # Compute expected n_days for water_temp length check (only if times is valid)
+  expected_n_days <- tryCatch({
+    if (!is.null(times) && all(required_times_names %in% names(times)))
+      length(times["t_start"]:times["t_end"])
+    else
+      NA_integer_
+  }, error = function(e) NA_integer_)
+
+  # ---- 3. water_temp ---------------------------------------------------------
+  if (missing(water_temp)) {
+    add_problem("Parameter `water_temp` is missing. Provide a numeric vector of water temperatures (°C) ",
+                "with one value per day of the simulation.")
+  } else {
+    if (!is.numeric(water_temp)) {
+      add_problem("Provided parameter `water_temp` must be a numeric vector, but has class: <",
+                  paste(class(water_temp), collapse = "/"), ">.")
+    } else {
+      if (any(is.na(water_temp))) {
+        add_problem("Provided parameter `water_temp` contains ", sum(is.na(water_temp)),
+                    " NA value(s). All temperatures must be non-missing.")
+      }
+      if (!is.na(expected_n_days) && length(water_temp) != expected_n_days) {
+        add_problem("Provided parameter `water_temp` has length ", length(water_temp),
+                    " but `times` implies ", expected_n_days, " days (t_start:",
+                    times["t_start"], " to t_end:", times["t_end"], "). ",
+                    "Provide one temperature value per simulation day.")
+      }
+    }
+  }
+
+  # ---- 4. feed_params --------------------------------------------------------
+  required_nutrients  <- c("Proteins", "Lipids", "Carbohydrates")
+  required_feed_fields <- c("proportion", "macro", "digest")
+
+  if (missing(feed_params)) {
+    add_problem("Parameter `feed_params` is missing. Provide a named list with elements ",
+                "\"Proteins\", \"Lipids\", and \"Carbohydrates\", each being a list with ",
+                "fields \"proportion\", \"macro\", and \"digest\".")
+  } else {
+    if (!is.list(feed_params)) {
+      add_problem("Provided parameter `feed_params` must be a list, but has class: <",
+                  paste(class(feed_params), collapse = "/"), ">.")
+    } else {
+      missing_nuts <- setdiff(required_nutrients, names(feed_params))
+      for (nm in missing_nuts) {
+        add_problem("Provided parameter `feed_params` is missing a \"", nm, "\" list. ",
+                    "Add a list named \"", nm, "\" with fields \"proportion\", \"macro\", and \"digest\".")
+      }
+      # Check sub-fields for each present nutrient
+      present_nuts <- intersect(required_nutrients, names(feed_params))
+      for (nut in present_nuts) {
+        elem <- feed_params[[nut]]
+        if (!is.list(elem)) {
+          add_problem("`feed_params[[\"", nut, "\"]]` must be a list, but has class: <",
+                      paste(class(elem), collapse = "/"), ">.")
+        } else {
+          missing_fields <- setdiff(required_feed_fields, names(elem))
+          for (fld in missing_fields) {
+            add_problem("`feed_params[[\"", nut, "\"]]` is missing the \"", fld, "\" field. ",
+                        "Each nutrient list must have \"proportion\", \"macro\", and \"digest\".")
+          }
+          # Check that present fields are numeric scalars
+          present_fields <- intersect(required_feed_fields, names(elem))
+          for (fld in present_fields) {
+            val <- elem[[fld]]
+            if (!is.numeric(val)) {
+              add_problem("`feed_params[[\"", nut, "\"]]$", fld,
+                          "` must be numeric, but has class: <",
+                          paste(class(val), collapse = "/"), ">.")
+            } else if (length(val) != 1 || is.na(val)) {
+              add_problem("`feed_params[[\"", nut, "\"]]$", fld,
+                          "` must be a single non-NA numeric value.")
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # ---- 5. init_weight --------------------------------------------------------
+  if (missing(init_weight)) {
+    add_problem("Parameter `init_weight` is missing. Provide a single positive numeric value ",
+                "for the initial individual weight (g).")
+  } else {
+    if (!is.numeric(init_weight)) {
+      add_problem("Provided parameter `init_weight` must be numeric, but has class: <",
+                  paste(class(init_weight), collapse = "/"), ">.")
+    } else if (length(init_weight) != 1 || is.na(init_weight)) {
+      add_problem("Provided parameter `init_weight` must be a single non-NA numeric value.")
+    } else if (init_weight <= 0) {
+      add_problem("Provided parameter `init_weight` must be a positive number ",
+                  "(currently ", init_weight, ").")
+    }
+  }
+
+  # ---- 6. ingmax -------------------------------------------------------------
+  if (missing(ingmax)) {
+    add_problem("Parameter `ingmax` is missing. Provide it as a single positive numeric value ",
+                "for the maximum mass-specific ingestion coefficient (g g^-m day^-1).")
+  } else {
+    if (!is.numeric(ingmax)) {
+      add_problem("Provided parameter `ingmax` must be numeric, but has class: <",
+                  paste(class(ingmax), collapse = "/"), ">.")
+    } else if (length(ingmax) != 1 || is.na(ingmax)) {
+      add_problem("Provided parameter `ingmax` must be a single non-NA numeric value.")
+    } else if (ingmax <= 0) {
+      add_problem("Provided parameter `ingmax` must be a positive number (currently ", ingmax, ").")
+    }
+  }
+
+  # ---- 7. output_vars --------------------------------------------------------
+  valid_output_vars <- c(
+    "weight", "dw", "water_temp", "T_response",
+    "P_excr", "L_excr", "C_excr",
+    "P_uneat", "L_uneat", "C_uneat",
+    "food_prov", "food_enc", "rel_feeding",
+    "ing_pot", "ing_act", "E_assim", "E_somat",
+    "anab", "catab", "O2", "NH4",
+    "total_excr", "total_uneat", "metab",
+    "nitrogen_excr", "nitrogen_uneat",
+    "carbon_excr", "carbon_uneat",
+    "total_carbon", "total_nitrogen"
+  )
+
+  if (!missing(output_vars)) {
+    if (!is.character(output_vars)) {
+      add_problem("Provided parameter `output_vars` must be a character vector, but has class: <",
+                  paste(class(output_vars), collapse = "/"), ">.")
+    } else {
+      invalid_vars <- setdiff(output_vars, valid_output_vars)
+      if (length(invalid_vars) > 0) {
+        add_problem("Provided parameter `output_vars` contains unrecognised variable(s): ",
+                    paste(paste0("\"", invalid_vars, "\""), collapse = ", "), ". ",
+                    "Valid options are: ",
+                    paste(paste0("\"", valid_output_vars, "\""), collapse = ", "), ".")
+      }
+    }
+  }
+
+  # ---- Summary ---------------------------------------------------------------
+  if (length(problems) == 0) {
+    message("All inputs look good — `fish_growth()` should run without errors.")
+    return(invisible(TRUE))
+  } else {
+    message(sprintf(
+      "Found %d problem%s with the inputs to `fish_growth()`:\n",
+      length(problems), if (length(problems) == 1) "" else "s"
+    ))
+    for (i in seq_along(problems)) {
+      message(sprintf("  [%d] %s", i, problems[i]))
+    }
+    return(invisible(FALSE))
+  }
 }
 
 

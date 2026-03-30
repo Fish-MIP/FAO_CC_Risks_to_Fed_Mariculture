@@ -36,7 +36,7 @@ The function hierarchy is:
 5. **Farm-level functions** — `farm_growth_full()`, `consolidate_farm()`, `scale_farm_population()`: run many individuals in parallel, summarise across individuals, then scale by population size. The wrapper `farm_growth()` calls all three in sequence.
 6. **Post-processing** — `decomposed_to_tidy()`, `convert_feed_to_levels()`: reshape results for plotting and analysis.
 
-The sections below work through each layer in order, using illustrative Atlantic salmon parameters. @sec-params sets up all inputs needed to run any of the functions. @sec-helpers and @sec-submodels demonstrate the lower-level building blocks. @sec-individual runs a single fish. @sec-farm runs a full farm simulation and plots the key outputs.
+The sections below work through each layer in order, using illustrative Atlantic salmon parameters. @sec-params sets up all inputs needed to run any of the functions. @sec-helpers demonstrates the lower-level building blocks. @sec-individual runs a single fish. @sec-farm runs a full farm simulation and plots the key outputs.
 
 # Setting up inputs {#sec-params}
 
@@ -82,11 +82,11 @@ species_params <- c(
 
 `feed_params` is a named list with one entry per macronutrient. Each entry holds three vectors:
 
-- **ingred_proportion**: The proportion of each ingredient in the feed (0-1). Note that this will be identical for all macronutrients and MUST SUM TO 1.
-- **ingred_macro**: The proportion of each ingredient that is composed of that macronutrient (0-1).
+- **proportion**: The proportion of each ingredient in the feed (0-1). Note that this will be identical for all macronutrients and MUST SUM TO 1.
+- **macro**: The proportion of each ingredient that is composed of that macronutrient (0-1).
 - **digest**: The digestibility of that macronutrient, in that ingredient (0-1).
 
-For whole-feed model runs where ingredients are not seperated, `ingred_proportion` == 1 for all list elements.
+For whole-feed model runs where ingredients are not seperated, `proportion` == 1 for all list elements.
 
 ```{r feed-params}
 #| code-summary: "Define feed_params — edit proportions and digestibilities for your feed"
@@ -94,38 +94,38 @@ For whole-feed model runs where ingredients are not seperated, `ingred_proportio
 # Example where seperate ingredients within feed are considered
 feed_params_ingredient <- list(
   Proteins = list(
-    ingred_proportion = c(0.3, 0.3, 0.4),
-    ingred_macro      = c(0.25, 0.5, 0.02),
-    digest            = c(0.85, 0.9, 0.75)
+    proportion = c(0.3, 0.3, 0.4),
+    macro      = c(0.25, 0.5, 0.02),
+    digest     = c(0.85, 0.9, 0.75)
   ),
   Lipids = list(
-    ingred_proportion = c(0.3, 0.3, 0.4),
-    ingred_macro      = c(0.1, 0.15, 0.9),
-    digest            = c(0.2, 0.95, 0.85)
+    proportion = c(0.3, 0.3, 0.4),
+    macro      = c(0.1, 0.15, 0.9),
+    digest     = c(0.2, 0.95, 0.85)
   ),
   Carbohydrates = list(
-    ingred_proportion = c(0.3, 0.3, 0.4),
-    ingred_macro      = c(0.6, 0.2, 0.05),
-    digest            = c(0.45, 0.5, 0.95)
+    proportion = c(0.3, 0.3, 0.4),
+    macro      = c(0.6, 0.2, 0.05),
+    digest     = c(0.45, 0.5, 0.95)
   )
 )
 
 # Example where only whole-feed is considered
 feed_params_whole <- list(
   Proteins = list(
-    ingred_proportion = 1,
-    ingred_macro      = 0.25,
-    digest            = 0.85
+    proportion = 1,
+    macro      = 0.25,
+    digest     = 0.85
   ),
   Lipids = list(
-    ingred_proportion = 1,
-    ingred_macro      = 0.2,
-    digest            = 0.90
+    proportion = 1,
+    macro      = 0.2,
+    digest     = 0.90
   ),
   Carbohydrates = list(
-    ingred_proportion = 1,
-    ingred_macro      = 0.55,
-    digest            = 0.65
+    proportion = 1,
+    macro      = 0.55,
+    digest     = 0.65
   )
 )
 ```
@@ -253,8 +253,8 @@ provided <- 50; ingested <- 42
 protein_fractions <- apportion_feed(
   provided           = provided,
   ingested           = ingested,
-  ingred_proportion  = feed_params_ingredient[["Proteins"]]$ingred_proportion,
-  ingred_macro       = feed_params_ingredient[["Proteins"]]$ingred_macro,
+  ingred_proportion  = feed_params_ingredient[["Proteins"]]$proportion,
+  ingred_macro       = feed_params_ingredient[["Proteins"]]$macro,
   digestibility      = feed_params_ingredient[["Proteins"]]$digest
 )
 
@@ -264,8 +264,8 @@ print(round(protein_fractions, 3))
 protein_fractions <- apportion_feed(
   provided           = provided,
   ingested           = ingested,
-  ingred_proportion  = feed_params_whole[["Proteins"]]$ingred_proportion,
-  ingred_macro       = feed_params_whole[["Proteins"]]$ingred_macro,
+  ingred_proportion  = feed_params_whole[["Proteins"]]$proportion,
+  ingred_macro       = feed_params_whole[["Proteins"]]$macro,
   digestibility      = feed_params_whole[["Proteins"]]$digest
 )
 
@@ -311,10 +311,10 @@ as.data.frame(one_fish) %>%
   ) %>% 
   ggplot(aes(days, value)) +
   geom_line(colour = "#2171b5", linewidth = 1) +
-  facet_wrap(~output_var, scales = "free", ncol = 4) +
-  labs(x = "Day", y = "Weight (g)",
-       title = "Individual fish outputs") +
-  theme_classic()
+  facet_wrap(~output_var, scales = "free", ncol = 3) +
+  labs(x = "Day", title = "Individual fish outputs") +
+  theme_classic() +
+  theme(axis.title.y = element_blank())
 ```
 
 You can subset the variables you want returned in case you don't want to deal with the whole gamut of output variables.
@@ -545,11 +545,11 @@ farm_det <- farm_growth(
 
 cat(
   sprintf(
-    "Deterministic final biomass: %.0f kg\n",
+    "Deterministic final biomass: %.2f kg\n",
     tail(farm_det$stats[["weight"]][, 1], 1) / 1000
   ),
   sprintf(
-    "SD of final biomass: %.0f\n",
+    "SD of final biomass: %.2f\n",
     tail(farm_det$stats[["weight"]][, 2], 1) / 1000
   )
 )

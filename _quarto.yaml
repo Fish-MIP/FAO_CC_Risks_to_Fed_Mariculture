@@ -6,7 +6,7 @@ project:
     - index.qmd
     - 00_model_function_demonstration.qmd
     - 01_choosing_species.qmd
-    # - 02_assigning_locations.qmd
+    - 02_01_check_species_atlantic_salmon.qmd
 
 format:
   html:
@@ -36,5 +36,5 @@ bibliography: ["resources/references.bib"]
 knitr: 
   opts_chunk:
     fig.align: center
-    fig.height: 8.5
-    fig.width: 7.5
+    fig.height: 7.5
+    fig.width: 8.5
