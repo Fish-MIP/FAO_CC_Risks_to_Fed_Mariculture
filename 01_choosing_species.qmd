@@ -53,9 +53,11 @@ The previous data processing script () has already matched the scientific name r
 # here("data-prep-scripts", "aquaculture-production-data.R") %>% source()
 FAO_aqua <- file.path(prepdata_path, "FAO_aquaculture_quantity_MA_BR.qs") %>% 
   qd_read() %>% 
-  select(-status_nm)
+  select(-status_nm) %>% 
+  filter(!str_detect(fao_fishing_area, "Inland waters")) %>% 
+  mutate(fao_fishing_area = droplevels(fao_fishing_area))
 
-head(FAO_aqua)
+str(FAO_aqua)
 ```
 
 The dataset covers FAO-reported aquaculture production across marine and brackishwater environments. Each row represents the production (tonnes live weight) for a given species, country, and year. We restrict the analysis to years **after 2010** (i.e., 2011 onwards).
@@ -66,9 +68,7 @@ This analysis focuses exclusively on **fed mariculture** — species that requir
 #| code-summary: "Filter dataset to years after 2010 and only to fed species"
 
 FAO_modern <- FAO_aqua %>% 
-  filter(
-    period > 2010 
-    )
+  filter(period > 2010)
 
 FAO_modern_fed <- FAO_aqua %>% 
   filter(
@@ -96,7 +96,7 @@ total_production <- left_join(total_production_all, total_production_fed, by = j
   mutate(
     pct_fed = round(total_fed/total_all * 100, 1),
     pct_nonfed = round(100 - pct_fed, 1)
-    )
+  )
 ```
 
 Fed species account for
@@ -322,10 +322,8 @@ FAO_with_models <- FAO_modern_fed %>%
     TRUE ~ NA
   )) %>%
   select(-model_name_1, -model_name_2) %>%
-  # The genus-only duplicates added to model_keys mean a single FAO row can match
-  # multiple model_keys rows (e.g. "Salmo salar" matches both the full-name and the
-  # "Salmo" genus entry). After coalescing model_name the duplicates are identical,
-  # so distinct() safely collapses them back to one row per original FAO record.
+  # The genus-only duplicates added to model_keys mean a single FAO row can match multiple model_keys rows (e.g. "Salmo salar" matches both the full-name and the
+  # "Salmo" genus entry). After coalescing model_name the duplicates are identical, so distinct() collapses them back to one row per original FAO record.
   distinct()
 
 # Check that there are no major records missing a model_name
@@ -1073,29 +1071,29 @@ p_bigmap_robinson +
 The 17 manually chosen model names and a representative (typically most-commonly farmed) species for each are listed in @tbl-model-summary.
 
 ```{r tbl-model-summary}
-#| tbl-cap: "Manually chosen bioenergetic model names, the groups they are intended to represent, and a representative species for each. The representative species is typically the most commercially important farmed species in the group, or one that typifies the broader taxonomic category. The 'Params?' column indicates whether work has already been done to parameterise this model."
+#| tbl-cap: "Manually chosen bioenergetic model names, the groups they are intended to represent, and a representative species for each. The representative species is typically the most commercially important farmed species in the group, or one that typifies the broader taxonomic category. The 'Params?' column indicates whether work has already been done to parameterise this model. Note that these choices do not take diets into account - some groups listed may be excluded in future because their diets are composed entirely of wild-sourced materials which will not be included in the climate change analysis (e.g. kelp for abalone)."
 #| code-summary: "Display summary table of chosen model names and representative species"
 
 tribble(
-  ~`Model name`, ~`Groups represented`, ~`Representative species`, ~`Params?`,
-    "atlantic_salmon",       "*Salmo* spp, non-trout Salmoniformes including arctic char (*Salvelinus alpinus*)", "Atlantic salmon (*Salmo salar*)", "Y", 
-    "whiteleg_shrimp",       "*Penaeus* spp and *Metapenaeopsis*", "Whiteleg shrimp (*Litopenaeus vannamei*)", " ", 
-    "milkfish",              "*Chanos chanos*", "Milkfish (*Chanos chanos*)", "Y", 
-    "tiger_prawn",           "  ", " ", " ", 
-    "rainbow_trout",         "*Oncorhynchus* spp", "Rainbow trout (*Oncorhynchus mykiss*)", " ", 
-    "seabream",              "*Sparus* spp (almost entirely *Sparus aurata*)", "Gilthead seabream (*Sparus aurata*)", "Y", 
-    "drum_croaker",          "All Sciaenidae including *Umbrina* spp (croakers), *Sciaenops ocellatus* (red drum) and *Cilus gilberti* (corvina drum), *Larimichthys* spp, *Miichthys* spp, *Argyrosomus* spp, *Micropogonias* spp", "Red drum (*Sciaenops ocellatus*) OR Large yellow croaker (*Larimichthys crocea*)", " ", 
-    "mud_crab",              "*Scylla* spp", "Mud crab (*Scylla serrata*)", " ", 
-    "european_seabass",      "*Dicentrarchus* spp and *Morone* spp (temperate basses)", "European seabass (*Dicentrarchus labrax*)", "Y", 
-    "japanese_sea_cucumber", "*Apostichopus* spp", "Japanese sea cucumber (*Apostichopus japonicus*)", " ", 
-    "abalone",               "*Haliotis* spp (particularly SA abalone *H. midae* and red abalone *Haliotis rufescens*)", "Japanese abalone (*Haliotis discus hannai*)"," ", 
-    "golden_pompano",        "*Trachinotus* spp", "Golden pompano (*Trachinotus ovatus*)", "Y", 
-    "grouper",               "All Serranidae, mostly *Epinephelus* spp but also including *Cephalopholis* spp, *Chromileptes* spp, *Gracila* spp, *Plectropomus* spp, *Hyporthodus* spp, and *Mycteroperca* spp", "Orange-spotted grouper (*Epinephelus coioides*)", " ", 
-    "japanese_amberjack",    "*Seriola* spp", "Japanese amberjack / Yellowtail (*Seriola quinqueradiata*)", "Y", 
-    "japanese_seabass",      "*Lateolabrax* spp", "Japanese seabass (*Lateolabrax japonicus*)", "Y", 
-    "nile_tilapia",          "*Oreochromis* spp, *Sarotherodon* spp", "Nile tilapia (*Oreochromis niloticus*)", " ", 
-    "olive_flounder",        "All Bothidae and Pleuronectiformes (mostly *Paralichthys* spp)", "Olive flounder (*Paralichthys olivaceus*)", " ",
-    "tuna",                  "*Thunnus* spp", "Atlantic bluefin tuna (*Thunnus thynnus*)", " " 
+  ~`Model name`,             ~`Representative species`,                          ~`Groups represented`, ~`Params?`,
+    "atlantic_salmon",       "Atlantic salmon (*Salmo salar*)",                  "*Salmo* spp and non-trout Salmoniformes", "Y", 
+    "whiteleg_shrimp",       "Whiteleg shrimp (*Penaeus vannamei*)",             "*Penaeus* spp, *Metapenaeus* spp and *Metapenaeopsis* spp", " ", 
+    "milkfish",              "Milkfish (*Chanos chanos*)",                       "*Chanos chanos*", "Y", 
+    "tiger_prawn",           "Giant tigar prawn (*Penaeus monodon*)",            "*Penaeus monodon*, *Penaeus merguiensis*", " ", 
+    "rainbow_trout",         "Rainbow trout (*Oncorhynchus mykiss*)",            "*Oncorhynchus* spp and arctic char (*Salvelinus alpinus*)", " ", 
+    "seabream",              "Gilthead seabream (*Sparus aurata*)",              "*Sparus* spp (almost entirely *Sparus aurata*), *Acanthopagrus* spp, *Diplodus* spp, *Pagrus* spp, *Sparidentex* spp", "Y", 
+    "drum_croaker",          "Large yellow croaker (*Larimichthys crocea*)",     "Sciaenidae, including *Umbrina* spp (croakers), *Sciaenops* spp and *Cilus* spp (drums), *Argyrosomus* spp (meagres), *Larimichthys* spp, *Miichthys* spp, *Micropogonias* spp", " ", 
+    "mud_crab",              "Giant mud crab (*Scylla serrata*)",                "*Scylla* spp", " ", 
+    "european_seabass",      "European seabass (*Dicentrarchus labrax*)",        "*Dicentrarchus* spp and *Morone* spp (temperate basses)", "Y", 
+    "japanese_sea_cucumber", "Japanese sea cucumber (*Apostichopus japonicus*)", "*Apostichopus* spp", " ", 
+    "abalone",               "Japanese abalone (*Haliotis discus*)",             "*Haliotis* spp (particularly SA abalone *H. midae* and red abalone *Haliotis rufescens*)", " ", 
+    "golden_pompano",        "Golden pompano (*Trachinotus ovatus*)",            "*Trachinotus* spp", "Y", 
+    "grouper",               "Orange-spotted grouper (*Epinephelus coioides*)",  "Serranidae, mostly *Epinephelus* spp but also including *Cephalopholis* spp, *Chromileptes* spp, *Gracila* spp, *Plectropomus* spp, *Hyporthodus* spp, and *Mycteroperca* spp", " ", 
+    "japanese_amberjack",    "Japanese amberjack (*Seriola quinqueradiata*)",    "*Seriola* spp", "Y", 
+    "japanese_seabass",      "Japanese seabass (*Lateolabrax japonicus*)",       "*Lateolabrax* spp", "Y", 
+    "nile_tilapia",          "Nile tilapia (*Oreochromis niloticus*)",           "*Oreochromis* spp, *Sarotherodon* spp", " ", 
+    "olive_flounder",        "Olive flounder (*Paralichthys olivaceus*)",        "All Bothidae and Pleuronectiformes, mostly *Paralichthys* spp but also including *Platichthys* spp", " ",
+    "tuna",                  "Atlantic bluefin tuna (*Thunnus thynnus*)",        "*Thunnus* spp", " " 
   ) %>%
   gt() %>%
   fmt_markdown(columns = c(`Groups represented`, `Representative species`)) %>%
@@ -1109,59 +1107,42 @@ tribble(
 
 # Save data {#sec-save-data}
 
-```{r save-data}
-#| code-summary: "Save the top 15 species and the ranked model choices"
-
-qd_save(top_species, file.path(prepdata_path, "FAO_aquaculture_top_species.qs"))
-qd_save(coverage_both_rank, file.path(prepdata_path, "coverage_both_rank.qs"))
-qd_save(coverage_marine_rank, file.path(prepdata_path, "coverage_marine_rank.qs"))
-qd_save(coverage_compromise_rank, file.path(prepdata_path, "coverage_compromise_rank.qs"))
-qd_save(coverage_manual_rank, file.path(prepdata_path, "coverage_manual_rank.qs"))
-```
-
 This next chunk saves a csv that shows all the species covered by each of the models in the ranked choice lists, for a future supplementary section.
 
 ```{r save-model-species-lists}
 #| code-summary: "Build per-model species lists (Scientific_Name condensed to a single string) and save"
 
-FAO_with_models_both_rank <- FAO_with_models %>%
-  filter(model_name %in% coverage_both_rank$model_name) %>%
-  distinct(environment, model_name, Scientific_Name) %>%
-  group_by(environment, model_name) %>%
-  summarise(Scientific_Name = paste(sort(Scientific_Name), collapse = ", "), .groups = "drop")
-
-write_csv(FAO_with_models_both_rank, file.path(prepdata_path, "FAO_with_models_both_rank.csv"))
-
-FAO_with_models_marine_rank <- FAO_with_models %>%
-  filter(model_name %in% coverage_marine_rank$model_name) %>%
-  distinct(environment, model_name, Scientific_Name) %>%
-  group_by(environment, model_name) %>%
-  summarise(Scientific_Name = paste(sort(Scientific_Name), collapse = ", "), .groups = "drop")
-
-write_csv(FAO_with_models_marine_rank, file.path(prepdata_path, "FAO_with_models_marine_rank.csv"))
-
-FAO_with_models_compromise_rank <- FAO_with_models %>%
-  filter(model_name %in% coverage_compromise_rank$model_name) %>%
-  distinct(environment, model_name, Scientific_Name) %>%
-  group_by(environment, model_name) %>%
-  summarise(Scientific_Name = paste(sort(Scientific_Name), collapse = ", "), .groups = "drop")
-
-write_csv(FAO_with_models_compromise_rank, file.path(prepdata_path, "FAO_with_models_compromise_rank.csv"))
-
-FAO_with_models_2 <- FAO_with_models %>% 
-    mutate(model_name = case_when(
-      model_name %in% c("drum", "large_yellow_croaker", "whitemouth_croaker", "meagre") ~ "drum_croaker", 
-      model_name %in% c("red_seabream", "gilthead_seabream") ~ "seabream", 
-      TRUE ~ model_name)
+FAO_with_models_final <- FAO_with_models %>% 
+  mutate(model_name = case_when(
+    model_name %in% c("arctic_char") ~ "rainbow_trout",
+    model_name %in% c("banana_prawn") ~ "tiger_prawn",
+    model_name %in% c("drum", "large_yellow_croaker", "whitemouth_croaker", "meagre") ~ "drum_croaker", 
+    model_name %in% c("red_seabream", "gilthead_seabream", "blackhead_seabream") ~ "seabream", 
+    TRUE ~ model_name
     )
-
-FAO_with_models_manual_rank <- FAO_with_models_2 %>%
-  filter(model_name %in% coverage_manual_rank$model_name) %>%
-  distinct(environment, model_name, Scientific_Name) %>%
+  ) %>%
+  filter(model_name %in% coverage_manual_rank$model_name) 
+  
+FAO_with_models_final_species <- FAO_with_models_final %>%
+  group_by(environment, model_name, Scientific_Name) %>% 
+  mutate(total_value = sum(value, na.rm = T)) %>% 
+  ungroup() %>% 
   group_by(environment, model_name) %>%
-  summarise(Scientific_Name = paste(sort(Scientific_Name), collapse = ", "), .groups = "drop")
+  mutate(most_common_species = Scientific_Name[which.max(total_value)]) %>% 
+  distinct(environment, model_name, Scientific_Name, most_common_species) %>% 
+  group_by(environment, model_name) %>% 
+  summarise(
+    Scientific_Name = paste(sort(Scientific_Name), collapse = "; "), 
+    most_common_species = first(most_common_species),
+    .groups = "drop"
+  )
 
-write_csv(FAO_with_models_manual_rank, file.path(prepdata_path, "FAO_with_models_manual_rank.csv"))
+write_csv(FAO_with_models_final_species, file.path(prepdata_path, "FAO_with_models_final_species.csv"))
+
+FAO_with_models_final_production <- FAO_with_models_final %>% 
+  select(-c(Scientific_Name, Sci_Name_Match, group_name, country_id))
+
+write_csv(FAO_with_models_final_production, file.path(prepdata_path, "FAO_with_models_final_production.csv"))
 ```
 
 ::: {style="display: flex; justify-content: space-between;"}
