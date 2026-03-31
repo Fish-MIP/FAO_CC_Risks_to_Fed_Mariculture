@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "4: Assigning farm locations"
 format: html
 ---
 
@@ -9,6 +9,7 @@ library(sf)
 library(here)
 library(qs2)
 library(RColorBrewer)
+library(purrr)
 
 here("src", "dirs.R") %>% source()
 here("src", "functions.R") %>% source()
@@ -37,6 +38,7 @@ aqua_locs <- file.path(prepdata_path, "mariculture_locations_FAO_codes.qs") %>%
 ```{r fig-locs}
 #| code-summary: "Make sure the mariculture locations data looks right"
 #| fig-cap: "Map of mariculture locations, coloured by species group."
+#| fig-width: 9.5
 
 p_bigmap_mercator +
   geom_sf(
@@ -90,7 +92,7 @@ Production has increased since 2017 (@fig-changes-since-2017). Since the aquacul
 
 ```{r fig-changes-since-2017}
 #| code-summary: "Show how production of each mapped group has changed in the last 5 years"
-#| fig-cap: "Comparing production of each model name from 2017 -- 2023, split by the groupings present in the aquaculture mapping data."
+#| fig-cap: "Comparing global production of each `model_name` from 2017 -- 2023, split by the groupings present in the aquaculture mapping data."
 
 FAO_aqua %>% 
     # I don't know why the years are paired like this in the data but they are - even-numbered years have ~3x the production of odd numbered years
@@ -137,6 +139,7 @@ str(FAO_aqua_means)
 # Assign locations
 
 For each country and FAO fishing region combination, we follow these steps:
+
 - Get the total number of farms for each `location_group` and the total production of each `model_name`
 
 
@@ -186,7 +189,7 @@ Each of the following subsections assigns farms for one of these groups, in orde
 * `regions_without_assignments_<model>` - a list of the regions (countries x FAO regions) which have production data but have no assigned farms. These will need to be assigned using habitat suitability later.
 * `farms_excluded_<model>` - the `farm_ID` values of locations that were mapped for a model but which were not selected for this analysis. If needed these can be called upon for future assignments.
 
-## Bluefin tuna
+## Bluefin tuna (`tuna`)
 
 ```{r assign-mapped-farms-tuna}
 #| code-summary: "Assign mapped farm locations to bluefin tuna."
@@ -204,14 +207,9 @@ all_region_locs <- aqua_locs %>%
     st_drop_geometry() %>% 
     select(-NAME_EN)
 
-plan(
-  strategy = "multisession", 
-  workers = parallel::detectCores()-2
-)
-
 # this_region_prod <- all_regions_production[[4]]
 
-tuna_locations <- future_map_dfr(
+tuna_locations <- map_dfr(
     all_regions_production,
     function(this_region_prod) {
         # Info
@@ -236,21 +234,21 @@ tuna_locations <- future_map_dfr(
         }
         return(production_locations)
     },
-    .progress = T,
-    .options = furrr_options(seed = TRUE)
+    .progress = T
 )
-
-plan(sequential)
 ```
 
 ```{r check-assignments-tuna}
 #| code-summary: "Show how tuna has been assigned to different regions"
 
+options(width = 120)
+
 # These countries have production values but no locations assigned
 tuna_locations %>% 
     filter(is.na(farm_ID)) %>% 
     mutate(number_of_farms = 0) %>% 
-    distinct(country, model_name, number_of_farms, value)
+    distinct(country, model_name, number_of_farms, value) %>% 
+    arrange(-value)
 
 # These countries were assigned production - I want to check how many farms were assigned and how much the estimated tonnage has changed from the location to production process. A small increase in production is fine, but a decrease indicates that too many farms were assigned (it's too spread out)
 (
@@ -268,6 +266,8 @@ tuna_locations %>%
 ```
 
 ```{r manual-reassignments-tuna}
+#| code-summary: "Manually reassign farms in some regions to tuna (where increase_ratio < 1)."
+
 assigned_tuna_summary <- assigned_tuna_summary %>% 
     filter(increase_ratio < 1)
 
@@ -290,6 +290,7 @@ subs_region_locs <- aqua_locs %>%
     st_drop_geometry() %>% 
     select(-NAME_EN)
 
+set.seed(5678)
 tuna_locations_2 <- map_dfr(
     subs_regions_production,
     function(this_region_prod) {
@@ -327,6 +328,8 @@ tuna_locations_2 <- map_dfr(
 ```{r finish-up-tuna}
 #| code-summary: "Collate tuna ssignment data to take forward"
 
+options(width = 120)
+
 # Which regions need habitat suitability assignment
 regions_without_assignments_tuna <- tuna_locations %>% 
     filter(is.na(farm_ID))
@@ -359,9 +362,10 @@ combined_locations_tuna %>%
     arrange(-increase_ratio)
 ```
 
-## Non-shrimp crustaceans
+## Non-shrimp crustaceans (`mud_crab`)
 
-```{r assign-mapped-farms-crustaceans}
+```{r assign-mapped-farms-mud_crab}
+#| code-summary: "Assign mapped farm locations to non-shrimp crustaceans."
 
 this_group <- groups_order[2]
 
@@ -376,5 +380,174 @@ all_region_locs <- aqua_locs %>%
     st_drop_geometry() %>% 
     select(-NAME_EN)
 
+# this_region_prod <- all_regions_production[[4]]
 
+mud_crab_locations <- map_dfr(
+    all_regions_production,
+    function(this_region_prod) {
+        # Info
+        ISO3        <- unique(this_region_prod$ISO3_Code)
+        F_CODE      <- unique(this_region_prod$F_CODE)
+
+        this_region_locs <- all_region_locs %>% 
+            filter(ISO3_Code == ISO3, F_CODE == F_CODE) %>% 
+            group_by(species_group) %>% 
+            mutate(prop_species_tonnes = sum(t_per_farm_2017, na.rm = T)) %>% 
+            ungroup() %>% 
+            mutate(prop_species_tonnes = t_per_farm_2017/prop_species_tonnes)
+
+        # If there are any locations to be assigned, they are all assigned to mud_crab (because it's only one model_name)
+        if (nrow(this_region_locs) > 0) {
+            production_locations <- this_region_prod %>% 
+                left_join(this_region_locs, by = c("ISO3_Code", "country", "F_CODE", "location_group" = "species_group")) %>% 
+                mutate(t_per_farm_2023 = prop_species_tonnes * value)
+        } else {
+            production_locations <- this_region_prod %>% 
+                mutate(t_per_farm_2017 = NA, farm_ID = NA, prop_species_tonnes  = NA, t_per_farm_2023 = NA)
+        }
+        return(production_locations)
+    },
+    .progress = T
+)
 ```
+
+```{r check-assignments-mud_crab}
+#| code-summary: "Show how mud_crab has been assigned to different regions"
+
+options(width = 120)
+
+# These countries have production values but no locations assigned
+mud_crab_locations %>% 
+    filter(is.na(farm_ID)) %>% 
+    mutate(number_of_farms = 0) %>% 
+    distinct(country, model_name, number_of_farms, value) %>% 
+    arrange(-value)
+
+# These countries were assigned production - I want to check how many farms were assigned and how much the estimated tonnage has changed from the location to production process. A small increase in production is fine, but a decrease indicates that too many farms were assigned (it's too spread out)
+(
+    assigned_mud_crab_summary <- mud_crab_locations %>% 
+        filter(!is.na(farm_ID)) %>% 
+        group_by(country, F_CODE, model_name) %>% 
+        reframe(
+            number_of_farms = n(),
+            t_per_farm_2017 = mean(t_per_farm_2017, na.rm = T),
+            t_per_farm_2023 = mean(t_per_farm_2023, na.rm = T),
+            increase_ratio = t_per_farm_2023/t_per_farm_2017
+        ) %>% 
+        arrange(-increase_ratio)
+)
+```
+
+```{r manual-reassignments-mud_crab}
+#| code-summary: "Manually reassign farms in some regions to mud_crab (where increase_ratio < 1)."
+
+assigned_mud_crab_summary <- assigned_mud_crab_summary %>% 
+    filter(increase_ratio < 1)
+
+subs_regions_production <- FAO_aqua_means %>% 
+    filter(
+        location_group == this_group & 
+        country %in% assigned_mud_crab_summary$country &
+        F_CODE  %in% assigned_mud_crab_summary$F_CODE
+    ) %>% 
+    group_by(ISO3_Code, F_CODE) %>% 
+    group_split()
+
+subs_region_locs <- aqua_locs %>% 
+    filter(
+        species_group == this_group & 
+        country %in% assigned_mud_crab_summary$country &
+        F_CODE  %in% assigned_mud_crab_summary$F_CODE
+    ) %>% 
+    rename(t_per_farm_2017 = tonnes_per_farm) %>% 
+    st_drop_geometry() %>% 
+    select(-NAME_EN)
+
+set.seed(5678)
+mud_crab_locations_2 <- map_dfr(
+    subs_regions_production,
+    function(this_region_prod) {
+        # Info
+        ISO3        <- unique(this_region_prod$ISO3_Code)
+        F_CODE      <- unique(this_region_prod$F_CODE)
+        ir          <- assigned_mud_crab_summary %>% 
+            filter(country == unique(this_region_prod$country) & F_CODE == F_CODE) %>% 
+            pull(increase_ratio)
+
+        this_region_locs <- subs_region_locs %>% 
+            filter(ISO3_Code == ISO3 & F_CODE == F_CODE) %>% 
+            group_by(species_group) %>% 
+            mutate(prop_species_tonnes = sum(t_per_farm_2017, na.rm = T)) %>% 
+            ungroup() %>% 
+            mutate(prop_species_tonnes = t_per_farm_2017/prop_species_tonnes)
+
+        # This is the key part - we're assigning fewer farms than there are
+        n_farms     <- as.integer(nrow(this_region_locs) * ir)
+        samp_farms  <- sample(this_region_locs$farm_ID, size = n_farms, replace = FALSE)
+
+        production_locations <- this_region_prod %>% 
+            left_join(
+                filter(this_region_locs, farm_ID %in% samp_farms), 
+                by = c("ISO3_Code", "country", "F_CODE", "location_group" = "species_group")
+            ) %>% 
+            mutate(t_per_farm_2023 = value/n_farms)
+
+        return(production_locations)
+    },
+    .progress = T
+)
+```
+
+```{r finish-up-mud_crab}
+#| code-summary: "Collate mud_crab ssignment data to take forward"
+
+options(width = 120)
+
+# Which regions need habitat suitability assignment
+regions_without_assignments_mud_crab <- mud_crab_locations %>% 
+    filter(is.na(farm_ID))
+mud_crab_locations <- mud_crab_locations %>% 
+    filter(!is.na(farm_ID))
+
+# Which farms have been excluded and can be returned to the locations pool later (if needed)
+farms_excluded_mud_crab <- setdiff(
+    mud_crab_locations$farm_ID[mud_crab_locations$ISO3_Code %in% mud_crab_locations_2$ISO3_Code & mud_crab_locations$F_CODE %in% mud_crab_locations_2$F_CODE], 
+    mud_crab_locations_2$farm_ID
+)
+mud_crab_locations <- mud_crab_locations %>% 
+    filter(!farm_ID %in% farms_excluded_mud_crab)
+
+# Update the assigned locations with down-adjusted values
+combined_locations_mud_crab <- rows_update(
+  mud_crab_locations %>% select(-prop_species_tonnes),
+  mud_crab_locations_2 %>% select(-prop_species_tonnes),
+  by = c("ISO3_Code", "country", "F_CODE", "location_group", "model_name", "value", "t_per_farm_2017", "farm_ID")
+)
+
+combined_locations_mud_crab %>% 
+    group_by(country, F_CODE, model_name) %>% 
+    reframe(
+        number_of_farms = n(),
+        t_per_farm_2017 = mean(t_per_farm_2017, na.rm = T),
+        t_per_farm_2023 = mean(t_per_farm_2023, na.rm = T),
+        increase_ratio = t_per_farm_2023/t_per_farm_2017
+    ) %>% 
+    arrange(-increase_ratio)
+```
+
+# Collate assignments so far
+
+
+```{r assignments-so-far}
+
+regions_without_assignments <- rbind(
+    regions_without_assignments_tuna,
+    regions_without_assignments_mud_crab
+)
+
+assigned_locations <- rbind(
+    combined_locations_tuna,
+    combined_locations_mud_crab
+)
+```
+
