@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 <meta name="author" content="Tormey Reimer">
-<meta name="dcterms.date" content="2026-03-30">
+<meta name="dcterms.date" content="2026-03-31">
 
 <title>Title page</title>
 <style>
@@ -21,7 +21,27 @@ ul.task-list li input[type="checkbox"] {
 width: 0.8em;
 margin: 0 0.8em 0.2em -1em;  vertical-align: middle;
 }
-</style>
+
+div.csl-bib-body { }
+div.csl-entry {
+clear: both;
+margin-bottom: 0em;
+}
+.hanging-indent div.csl-entry {
+margin-left:2em;
+text-indent:-2em;
+}
+div.csl-left-margin {
+min-width:2em;
+float:left;
+}
+div.csl-right-inline {
+margin-left:2em;
+padding-left:1em;
+}
+div.csl-indent {
+margin-left: 2em;
+}</style>
 
 
 <script>/*!
@@ -2203,7 +2223,7 @@ vertical-align: -.125em;
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">30 March 2026</p>
+      <p class="date">31 March 2026</p>
     </div>
   </div>
   
@@ -2218,26 +2238,27 @@ vertical-align: -.125em;
 <p>This page serves as an overall table of contents for all the project documentation.</p>
 <section id="data-extraction-and-prep" class="level1">
 <h1>Data extraction and prep</h1>
-<p>These scripts extract and tidy raw data for use further down the line. Where possible, the data is extract from its rawest possible form (i.e. downloaded straight from the source). These are only included for completeness’ sake and do not need to be run again. Outputs from these scripts are saved in the <code>data\prepped_data</code> directory, which is not available on Github.</p>
+<p>These scripts extract and tidy raw data for use further down the line. Where possible, the data is extract from its rawest possible form</p>
+<p>These scripts take available data (<code>data\raw_data</code>) and prepare it for use in this analysis (<code>data\prepped_data</code>). Where possible, the incoming data is in its raw, publicly available form (i.e. downloaded straight from the source). These scripts were run prior to completing the analysis below and do not need to be re-run when replicating the analysis - the data produced from the following scripts is available on request.</p>
 <table class="caption-top table">
 <thead>
 <tr class="header">
 <th style="text-align: left;">Script</th>
-<th style="text-align: left;">Description</th>
+<th style="text-align: left;">Dataset</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td style="text-align: left;"><a href="data-prep-scripts/historical-sst.R">historical-sst.R</a></td>
-<td style="text-align: left;">Description</td>
+<td style="text-align: left;">Historical SST data (NASA) - 0.25 degree resolution (<link>)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;"><a href="data-prep-scripts\aquaculture-production-data.R">aquaculture-production-data.R</a></td>
-<td style="text-align: left;"></td>
+<td style="text-align: left;">FAO aquaculture production data (<link>)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;"><a href="data-prep-scripts\mariculture-locations.R">mariculture-locations.R</a></td>
-<td style="text-align: left;"></td>
+<td style="text-align: left;">Aquaculture siting maps <span class="citation" data-cites="clawson_mapping_2022 clawson_mapping_2022_data">(<a href="#ref-clawson_mapping_2022" role="doc-biblioref">Clawson et al. 2022</a>; <a href="#ref-clawson_mapping_2022_data" role="doc-biblioref">Clawson 2022</a>)</span></td>
 </tr>
 </tbody>
 </table>
@@ -2255,7 +2276,7 @@ vertical-align: -.125em;
 <tbody>
 <tr class="odd">
 <td style="text-align: left;"><a href="00_model_function_demonstration.html">00_model_function_demonstration.qmd</a></td>
-<td style="text-align: left;"></td>
+<td style="text-align: left;">A demonstration of the basic bioenergetic model functions.</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;"><a href="01_choosing_species.html">01_choosing_species.qmd</a></td>
@@ -2265,11 +2286,23 @@ vertical-align: -.125em;
 <td style="text-align: left;"><a href="02_01_check_species_european_seabass.html">02_01_check_species_european_seabass.qmd</a></td>
 <td style="text-align: left;"></td>
 </tr>
+<tr class="even">
+<td style="text-align: left;"><a href="04_assigning_locations.qmd">04_assigning_locations.qmd</a></td>
+<td style="text-align: left;">Assigns farm locations to each model name according to previously-mapped locations, or habitat suitability if mapped locations are missing.</td>
+</tr>
 </tbody>
 </table>
+
 </section>
 
-</main>
+<div id="quarto-appendix" class="default"><section class="quarto-appendix-contents" role="doc-bibliography" id="quarto-bibliography"><h2 class="anchored quarto-appendix-heading">References</h2><div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
+<div id="ref-clawson_mapping_2022_data" class="csl-entry" role="listitem">
+Clawson, Gage. 2022. <span>‘Mapping the Spatial Distribution of Global Mariculture Production’</span>. Knowledge Network for Biocomplexity. <a href="https://knb.ecoinformatics.org/view/urn%3Auuid%3Ac5dbba3b-48db-40aa-a464-643617829685">https://knb.ecoinformatics.org/view/urn%3Auuid%3Ac5dbba3b-48db-40aa-a464-643617829685</a>.
+</div>
+<div id="ref-clawson_mapping_2022" class="csl-entry" role="listitem">
+Clawson, Gage, Caitlin D. Kuempel, Melanie Frazier, Gordon Blasco, Richard S. Cottrell, Halley E. Froehlich, Marc Metian, et al. 2022. <span>‘Mapping the Spatial Distribution of Global Mariculture Production’</span>. <em>Aquaculture</em> 553 (May): 738066. <a href="https://doi.org/10.1016/j.aquaculture.2022.738066">https://doi.org/10.1016/j.aquaculture.2022.738066</a>.
+</div>
+</div></section></div></main>
 <!-- /main column -->
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {

@@ -8,13 +8,15 @@ This page serves as an overall table of contents for all the project documentati
 
 # Data extraction and prep
 
-These scripts extract and tidy raw data for use further down the line. Where possible, the data is extract from its rawest possible form (i.e. downloaded straight from the source). These are only included for completeness' sake and do not need to be run again. Outputs from these scripts are saved in the `data\prepped_data` directory, which is not available on Github.
+These scripts extract and tidy raw data for use further down the line. Where possible, the data is extract from its rawest possible form 
 
-| Script | Description |
+These scripts take available data (`data\raw_data`) and prepare it for use in this analysis (`data\prepped_data`). Where possible, the incoming data is in its raw, publicly available form (i.e. downloaded straight from the source). These scripts were run prior to completing the analysis below and do not need to be re-run when replicating the analysis - the data produced from the following scripts is available on request.
+
+| Script | Dataset |
 |:-------------------|:----------------------------------------------------------------|
-| [historical-sst.R](data-prep-scripts/historical-sst.R) | Description |
-| [aquaculture-production-data.R](data-prep-scripts\aquaculture-production-data.R) | |
-| [mariculture-locations.R](data-prep-scripts\mariculture-locations.R) | |
+| [historical-sst.R](data-prep-scripts/historical-sst.R) | Historical SST data (NASA) - 0.25 degree resolution (<link>) |
+| [aquaculture-production-data.R](data-prep-scripts\aquaculture-production-data.R) | FAO aquaculture production data (<link>) |
+| [mariculture-locations.R](data-prep-scripts\mariculture-locations.R) | Aquaculture siting maps [@clawson_mapping_2022; @clawson_mapping_2022_data] |
 
 # Analysis
 
@@ -22,8 +24,9 @@ These scripts....
 
 | Script | Description |
 |:-------------------|:----------------------------------------------------------------|
-| [00_model_function_demonstration.qmd](00_model_function_demonstration.html) | |
+| [00_model_function_demonstration.qmd](00_model_function_demonstration.html) | A demonstration of the basic bioenergetic model functions. |
 | [01_choosing_species.qmd](01_choosing_species.html) | Identifies the top 25 most-produced fed marine and brackishwater aquaculture species using FAO data from 2011 onwards, ranked by cumulative production volume. Includes production trends over time and an assessment of how much of global aquaculture production the top 25 species collectively represent. |
 | [02_01_check_species_european_seabass.qmd](02_01_check_species_european_seabass.html) | |
+| [04_assigning_locations.qmd](04_assigning_locations.qmd) | Assigns farm locations to each model name according to previously-mapped locations, or habitat suitability if mapped locations are missing. |
 
 
