@@ -1,5 +1,5 @@
 ---
-title: "Step 3.1: Checking species parameterisation for `atlantic_salmon`"
+title: "2.1: Checking species parameterisation for `atlantic_salmon`"
 subtitle: "FAO Climate Change Risks to Fed Mariculture"
 author: 
   - "Tormey Reimer"

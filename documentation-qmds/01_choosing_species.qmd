@@ -4,15 +4,6 @@ subtitle: "FAO Climate Change Risks to Fed Mariculture"
 author:
   - "Tormey Reimer"
 date: last-modified
-bibliography: ["resources/references.bib"]
-execute:
-  eval: true
-  cache: true
-knitr:
-  opts_chunk:
-    fig.align: center
-    fig.height: 8.5
-    fig.width: 7.5
 ---
 
 ::: {style="display: flex; justify-content: space-between;"}
@@ -21,8 +12,14 @@ knitr:
 [Next: Assigning Locations →](02_assigning_locations.qmd)
 :::
 
+# Overview {#sec-overview}
+
 ```{r setup}
-#| include: false
+#| cache: false
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
 #| code-summary: "Load packages and set display globals"
 
 library(tidyverse)
@@ -33,13 +30,20 @@ library(units)
 library(gt)
 library(cowplot)
 library(ggtext)
+```
+
+```{r source-scripts}
+#| cache: false
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
+#| code-summary: "Source R scripts in use"
 
 here("src", "dirs.R") %>% source()
 here("src", "functions.R") %>% source()
 here("src", "display_globals.R") %>% source()
 ```
-
-# Overview {#sec-overview}
 
 The goal of this document is to identify the most commercially important marine and brackishwater aquaculture species worldwide, based on FAO production data from 2011 to the most recent available year. We focus on post-2010 data to reflect modern production trends, and rank species by their total reported production volume (tonnes live weight) over this period.
 

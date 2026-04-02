@@ -1,13 +1,13 @@
 project:
   title: "FAO Climate Change Risks to Fed Mariculture"
   type: default
-  output-dir: documentation
+  output-dir: documentation-htmls
   render: 
     - index.qmd
-    - 00_model_function_demonstration.qmd
-    - 01_choosing_species.qmd
-    - 02_01_check_species_atlantic_salmon.qmd
-    - 04_assigning_locations.qmd
+    - documentation-qmds/00_model_function_demonstration.qmd
+    - documentation-qmds/01_choosing_species.qmd
+    - documentation-qmds/02_01_check_species_atlantic_salmon.qmd
+    - documentation-qmds/04_assigning_locations.qmd
 
 format:
   html:
@@ -32,10 +32,10 @@ execute:
   eval: true
   cache: true # quarto render --cache-refresh
 
-bibliography: ["resources/references.bib"]
+bibliography: ["resources/references.bib", "resources/manual-refs.bib"]
 
 knitr: 
   opts_chunk:
     fig.align: center
-    fig.height: 7.5
-    fig.width: 8.5
+    fig.height: 7
+    fig.width: 9
