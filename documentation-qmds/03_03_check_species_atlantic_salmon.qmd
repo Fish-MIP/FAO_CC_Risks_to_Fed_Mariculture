@@ -101,35 +101,17 @@ feed_params <- sum_feeds(
 qs_save(feed_params, file.path(prepdata_path, "feed_parameters", "feed_parameters_atlantic_salmon.qs"))
 ```
 
-In the feed used for this species:
+```{r tbl-feed-nutrition}
+#| code-summary: Show feed nutritional profile
+#| tbl-cap: "Nutritional profile of the feed for this species."
 
-* Protein is `r round(100*feed_params[["protein"]]$digestibility, 1)`% digestible
-* Lipid is `r round(100*feed_params[["lipid"]]$digestibility, 1)`% digestible
-* Carbohydrate is `r round(100*feed_params[["carb"]]$digestibility, 1)`% digestible
-
-```{r fig-nutritional-profile}
-#| code-summary: Plot feed nutritional profile showing digestible and indigestible fractions
-#| fig-cap: "Feed nutritional profile for atlantic_salmon showing digestible and indigestible proportions of protein, lipid, and carbohydrate."
-#| fig-height: 5
-
-feed_params %>% 
-  map2(., names(feed_params), function(fp, nm) {
-    fp %>% mutate(name = nm)
-  }) %>% 
-  bind_rows() %>% 
-  mutate(digestible = macro * digestibility, indigestible = macro - digestible) %>% 
-  select(name, indigestible, digestible) %>% 
-  pivot_longer(cols = -name, names_to = "type", values_to = "value") %>% 
-  mutate(
-    type = factor(type, levels = c("indigestible", "digestible"), labels = c("Indigestible", "Digestible")),
-    name = factor(name, levels = c("protein", "lipid", "carb"), labels = c("Protein", "Lipid", "Carbohydrate"))
-  ) %>% 
-  ggplot(aes(x = name, y = 100*value, fill = type)) +
-  geom_col() +
-  scale_fill_brewer(palette = "Set1") +
-  prettyplot() +
-  theme(legend.position = "right", axis.title.x = element_blank()) +
-  labs(main = "Feed nutritional profile", y = "Proportion of total feed (%)")
+tibble(
+  Macronutrient = c("Protein", "Lipid", "Carbohydrate"),
+  Proportion = c(feed_params[["protein"]]$macro, feed_params[["lipid"]]$macro, feed_params[["carb"]]$macro),
+  Digestibility = c(feed_params[["protein"]]$digestibility, feed_params[["lipid"]]$digestibility, feed_params[["carb"]]$digestibility)
+) |>
+  gt() |>
+  fmt_percent(columns = c(Proportion, Digestibility), decimals = 1)
 ```
 
 The temperature timeseries used is based on the mean current temperatures at farms assigned to this model group in [02_assigning_locations](02_assigning_locations.qmd).
