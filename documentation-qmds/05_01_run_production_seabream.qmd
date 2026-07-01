@@ -31,6 +31,8 @@ library(gt)
 library(qs2)
 library(slider)
 library(units)
+library(future)
+library(furrr)
 ```
 
 ```{r source-scripts}
@@ -44,7 +46,6 @@ library(units)
 here("src", "dirs.R") %>% source()
 here("src", "functions.R") %>% source()
 here("src", "model_functions.R") %>% source()
-here("src", "display_globals.R") %>% source()
 ```
 
 This document runs the future production for all models across all farms for the years 2025-2099.
@@ -81,7 +82,7 @@ feed_params <- map(feed_params, qs_read) %>%
 
 # Farm temperatures {#sec-farm-temperatures}
 
-The "assigned farms" table acts as a guide for the production run. It specifies which temperature timeseries is to be used (via farm_ID) and which species is to be grown there.
+The "assigned farms" table acts as a guide for the production run. It specifies which temperature timeseries to use (via farm_ID) and which species to grow there.
 
 ```{r get-assigned-farms}
 
@@ -109,8 +110,7 @@ assigned_farms %>% filter(is.na(filename))
 
 # TEMPORARY - filter out those species we don't have parameters for yet
 assigned_farms <- assigned_farms %>% 
-  filter(model_name %in% model_names) %>% 
-  slice_sample(n = 1000)
+  filter(model_name == "rainbow_trout" & ISO3_Code == "NOR")
 
 assigned_farms <- split(assigned_farms, assigned_farms$farm_ID)
 ```
@@ -210,21 +210,29 @@ There are several important metrics to get out of this process. At each farm and
 
 1. The total biomass produced (we're not adjusting the farm scaling factor/population for now)
 2. The total feed provided/consumed by the fish
+3. Possibly metabolic parameters - these aren't completely necessary but are more of an explanatory variable for the previous two.
 
 ```{r run-production}
 #| code-summary: Run the main production and save the outputs at each farm
 
 # Folder for results
 prod_path <- file.path(outs_path, "data", "farm_production")
-dir.create(prod_path, showWarnings = F)
+dir.create(prod_path, showWarnings = F, recursive = T)
 
 harvest_years <- 2025:2099
-MC_pop <- 10
+MC_pop <- 100
+
+farm_IDs <- map(assigned_farms, function(af) {af$farm_ID})
+prod_files <- file.path(prod_path, paste0("production_results_farmID_", fix_int(farm_IDs, 8), "_MC", MC_pop, ".qs"))
+files_to_do <- which(!file.exists(prod_files))
+
+plan(multisession, workers = 2)
 
 # af <- assigned_farms[[1]]
-walk(
-  assigned_farms,
-  function(af) {
+future_walk(
+  assigned_farms[files_to_do],
+  prod_files[files_to_do],
+  function(af, fnm) {
     species <- af$model_name
     sp <- species_params[[species]]
     fp <- feed_params[[species]]
@@ -293,14 +301,14 @@ walk(
       }, .progress = T
     )
 
-    qs_save(
-      fg,
-      file.path(prod_path, paste0("production_results_farmID_", fix_int(af$farm_ID, 8), "_MC", MC_pop, ".qs"))
-    )
+    qs2::qs_save(fg, fnm)
 
   },
-  .progress = T
+  .progress = T,
+  .options = furrr_options(seed = TRUE)
 )
+
+plan(sequential)
 ```
 
 ::: {style="display: flex; justify-content: space-between;"}

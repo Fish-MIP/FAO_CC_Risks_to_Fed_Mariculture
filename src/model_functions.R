@@ -2,8 +2,8 @@
 ### https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0195732
 ### https://github.com/cran/RAC/tree/master/R
 
-library(qs)
-library(terra)
+# library(qs)
+# library(terra)
 library(readxl)
 library(matrixStats)
 library(dplyr)
